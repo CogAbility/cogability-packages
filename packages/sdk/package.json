@@ -1,0 +1,25 @@
+{
+  "name": "@cogability/sdk",
+  "version": "0.1.1",
+  "type": "module",
+  "description": "Framework-agnostic JavaScript SDK for CogAbility CAM and CMG APIs",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "main": "./src/index.js",
+  "files": [
+    "src/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "oidc-client-ts": "^3.5.0"
+  },
+  "peerDependenciesMeta": {
+    "oidc-client-ts": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "cogability-packages",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Monorepo for the @cogability/sdk and @cogability/membership-kit npm packages.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "eslint packages",
+    "test:install": "rm -rf /tmp/cogability-pkg-install-test && mkdir /tmp/cogability-pkg-install-test && cd /tmp/cogability-pkg-install-test && npm init -y > /dev/null && npm install @cogability/sdk @cogability/membership-kit && node -e \"const sdk = require('@cogability/sdk'); console.log('OK:', Object.keys(sdk).join(', '));\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CogAbility/cogability-packages.git"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "eslint": "^9.39.4"
+  }
+}
