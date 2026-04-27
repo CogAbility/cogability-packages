@@ -103,3 +103,4 @@ npm install @cogability/sdk @cogability/membership-kit
 See:
 - [`packages/sdk/README.md`](packages/sdk/README.md) for SDK usage examples (React, Vue, vanilla JS, Node.js agents).
 - [`cogbot-membership-website-template`](https://github.com/CogAbility/cogbot-membership-website-template) for a complete React reference site.
+- [`cogbot-membership-website-template/deployment_guidance.md`](https://github.com/CogAbility/cogbot-membership-website-template/blob/main/deployment_guidance.md) for end-to-end deploy walkthroughs covering three integration paths: forking the template to Lovable / Vercel / Netlify / Cloudflare Pages, adding CogBot to an existing Lovable site via the SDK, or using the SDK from any other framework or Node agent. Also includes the shared backend allowlisting process (CAM CORS, CMG \`ALLOWED_ORIGINS\`, App ID redirect URLs) and a troubleshooting table.
