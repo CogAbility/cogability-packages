@@ -31,11 +31,10 @@ function hasOAuthParamsInUrl() {
  *
  * This component runs INSTEAD of the router on first paint when OAuth params
  * are detected. It finishes the OIDC handshake via AuthContext.handleCallback()
- * then navigates to the saved returnTo via the hash router. The
- * window.location.replace() is intentional: it strips the OAuth query params
- * and gives HashRouter a clean URL when the SPA remounts.
+ * then calls onComplete(target) so the parent can switch to the Router without
+ * a full-page reload, preserving React auth state across the transition.
  */
-function RootOAuthLanding() {
+function RootOAuthLanding({ onComplete }) {
   const { handleCallback } = useAuth();
   const { callback } = useSiteConfig();
   const calledRef = useRef(false);
@@ -53,9 +52,9 @@ function RootOAuthLanding() {
       const returnTo = sessionStorage.getItem('auth_return_to') || '/members';
       sessionStorage.removeItem('auth_return_to');
       const target = (result.autoProvisioned && !result.hasProfile) ? '/onboarding' : returnTo;
-      window.location.replace('/#' + target);
+      onComplete(target);
     });
-  }, [handleCallback]);
+  }, [handleCallback, onComplete]);
 
   return (
     <div className="min-h-screen flex items-center justify-center">
@@ -107,13 +106,23 @@ export default function App({ config, overrides = {} }) {
   const Onboarding = overrides.OnboardingPage || DefaultOnboardingPage;
   const Profile = overrides.ProfilePage || DefaultProfilePage;
 
-  const isHashOAuthLanding = ROUTER_MODE === 'hash' && hasOAuthParamsInUrl();
+  // Track whether RootOAuthLanding has already finished. After it completes
+  // it calls onComplete which flips this flag and switches to the Router
+  // WITHOUT a full-page reload, preserving React auth state.
+  const [oauthHandled, setOauthHandled] = useState(false);
+  const isHashOAuthLanding = ROUTER_MODE === 'hash' && hasOAuthParamsInUrl() && !oauthHandled;
+
+  const handleOAuthComplete = (target) => {
+    // Strip query params without reloading — gives HashRouter a clean URL.
+    window.history.replaceState({}, '', '/#' + target);
+    setOauthHandled(true);
+  };
 
   return (
     <SiteConfigProvider config={config}>
       <AuthProvider>
         {isHashOAuthLanding ? (
-          <RootOAuthLanding />
+          <RootOAuthLanding onComplete={handleOAuthComplete} />
         ) : (
           <Router>
             <div className="flex flex-col min-h-screen">
