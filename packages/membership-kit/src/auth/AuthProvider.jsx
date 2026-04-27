@@ -52,33 +52,6 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
-  // Bootstrap: rehydrate auth state from sessionStorage on mount.
-  // Covers two cases: (1) RootOAuthLanding triggered a full-page reload
-  // after handleCallback, (2) user hard-refreshes while signed in.
-  // oidc-client-ts persists the OIDC user to sessionStorage automatically;
-  // we just need to read it and repopulate React state.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const oidcUser = await auth.getUser();
-      if (cancelled || !oidcUser || oidcUser.expired) return;
-      const p = oidcUser.profile;
-      setUser({
-        uid: p.sub,
-        email: p.email ?? '',
-        firstName: p.given_name ?? p.name?.split(' ')[0] ?? '',
-        lastName: p.family_name ?? p.name?.split(' ').slice(1).join(' ') ?? '',
-        idToken: oidcUser.id_token,
-        accessToken: oidcUser.access_token,
-        raw: p,
-      });
-      sessionStorage.setItem('cam_token', oidcUser.id_token);
-      sessionStorage.setItem('cam_access_token', oidcUser.access_token);
-      await validateMembership(oidcUser.id_token);
-    })();
-    return () => { cancelled = true; };
-  }, [auth, validateMembership]);
-
   // Anonymous geofence probe — runs once on mount before any login flow.
   // Lets the landing page gate the public chat widget for non-allowed regions.
   useEffect(() => {
@@ -115,6 +88,34 @@ export function AuthProvider({ children }) {
       return { autoProvisioned: false, hasProfile: false };
     }
   }, [cmg]);
+
+  // Bootstrap: rehydrate auth state from sessionStorage on mount.
+  // Covers two cases: (1) full-page reload after OAuth callback,
+  // (2) user hard-refreshes while signed in.
+  // oidc-client-ts persists the OIDC user to sessionStorage automatically;
+  // we just need to read it and repopulate React state.
+  // NOTE: must be declared AFTER validateMembership to avoid TDZ error.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const oidcUser = await auth.getUser();
+      if (cancelled || !oidcUser || oidcUser.expired) return;
+      const p = oidcUser.profile;
+      setUser({
+        uid: p.sub,
+        email: p.email ?? '',
+        firstName: p.given_name ?? p.name?.split(' ')[0] ?? '',
+        lastName: p.family_name ?? p.name?.split(' ').slice(1).join(' ') ?? '',
+        idToken: oidcUser.id_token,
+        accessToken: oidcUser.access_token,
+        raw: p,
+      });
+      sessionStorage.setItem('cam_token', oidcUser.id_token);
+      sessionStorage.setItem('cam_access_token', oidcUser.access_token);
+      await validateMembership(oidcUser.id_token);
+    })();
+    return () => { cancelled = true; };
+  }, [auth, validateMembership]);
 
   const login = useCallback(async (returnTo = '/members') => {
     await auth.login(returnTo);
