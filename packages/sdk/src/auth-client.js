@@ -162,7 +162,17 @@ export class AuthClient {
 
 /**
  * Create an AuthClient from Vite-style VITE_* environment variables.
- * Convenience factory for use inside the membership-kit.
+ *
+ * Convenience factory for SPA consumers. Defaults `redirectUri` to
+ * `${window.location.origin}/callback`, which works on hosts that do SPA
+ * fallback (Vercel, Netlify, Cloudflare Pages, custom CDN).
+ *
+ * If you are deploying to a host WITHOUT SPA fallback (Lovable
+ * *.lovable.app, GitHub Pages without the 404.html hack), construct
+ * `AuthClient` manually with `redirectUri: \`${window.location.origin}/\``
+ * and handle the OAuth callback at the site root. The `@cogability/membership-kit`
+ * App component handles this automatically when you set
+ * `VITE_ROUTER_MODE=hash` in your `.env.production`.
  *
  * @param {string} cmgUrl - Base URL of CMG (used to build the token proxy URL).
  * @returns {AuthClient}

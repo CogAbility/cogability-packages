@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './auth/AuthProvider';
-import { SiteConfigProvider } from './config/SiteConfigContext';
+import { useEffect, useRef, useState } from 'react';
+import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider, useAuth } from './auth/AuthProvider';
+import { SiteConfigProvider, useSiteConfig } from './config/SiteConfigContext';
 import ProtectedRoute from './auth/ProtectedRoute';
 import RoleGate from './auth/RoleGate';
 import DefaultHeader from './components/Header';
@@ -11,9 +12,87 @@ import DefaultCallbackPage from './pages/CallbackPage';
 import DefaultOnboardingPage from './pages/OnboardingPage';
 import DefaultProfilePage from './pages/ProfilePage';
 
+const ROUTER_MODE = (import.meta.env.VITE_ROUTER_MODE || 'path').toLowerCase();
+const Router = ROUTER_MODE === 'hash' ? HashRouter : BrowserRouter;
+
+function hasOAuthParamsInUrl() {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.has('code') && params.has('state');
+}
+
+/**
+ * Hash-mode OAuth landing page.
+ *
+ * In hash mode the OAuth provider redirects users back to the site root
+ * (e.g. https://example.com/?code=...&state=...) because the static host
+ * cannot serve a /callback path on hosts without SPA fallback (Lovable
+ * *.lovable.app, GitHub Pages without 404.html hack).
+ *
+ * This component runs INSTEAD of the router on first paint when OAuth params
+ * are detected. It finishes the OIDC handshake via AuthContext.handleCallback()
+ * then navigates to the saved returnTo via the hash router. The
+ * window.location.replace() is intentional: it strips the OAuth query params
+ * and gives HashRouter a clean URL when the SPA remounts.
+ */
+function RootOAuthLanding() {
+  const { handleCallback } = useAuth();
+  const { callback } = useSiteConfig();
+  const calledRef = useRef(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (calledRef.current) return;
+    calledRef.current = true;
+
+    handleCallback().then((result) => {
+      if (!result.success) {
+        setError('Sign-in failed. Please try again.');
+        return;
+      }
+      const returnTo = sessionStorage.getItem('auth_return_to') || '/members';
+      sessionStorage.removeItem('auth_return_to');
+      const target = (result.autoProvisioned && !result.hasProfile) ? '/onboarding' : returnTo;
+      window.location.replace('/#' + target);
+    });
+  }, [handleCallback]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        {error ? (
+          <>
+            <p className="text-muted-foreground text-sm mb-4">{error}</p>
+            <button
+              type="button"
+              className="text-primary underline text-sm"
+              onClick={() => window.location.replace('/')}
+            >
+              Return home
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-muted-foreground text-sm">{callback?.loadingLabel ?? 'Signing you in…'}</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Main application shell. Accepts a site config object and optional
  * component overrides for per-deployer customization.
+ *
+ * Routing mode is controlled by VITE_ROUTER_MODE (default: "path"):
+ *   - "path" → BrowserRouter, OAuth redirect_uri = origin + "/callback".
+ *     For hosts that do SPA fallback (Vercel, Netlify, Cloudflare, custom CDN).
+ *   - "hash" → HashRouter, OAuth redirect_uri = origin + "/".
+ *     For hosts that don't do SPA fallback (Lovable *.lovable.app,
+ *     GitHub Pages without 404.html hack). The kit detects ?code=&state=
+ *     at the site root and finishes the OIDC handshake before routing.
  *
  * @param {object} config - The site configuration (from site.config.js)
  * @param {object} [overrides] - Optional map of component overrides:
@@ -28,50 +107,56 @@ export default function App({ config, overrides = {} }) {
   const Onboarding = overrides.OnboardingPage || DefaultOnboardingPage;
   const Profile = overrides.ProfilePage || DefaultProfilePage;
 
+  const isHashOAuthLanding = ROUTER_MODE === 'hash' && hasOAuthParamsInUrl();
+
   return (
     <SiteConfigProvider config={config}>
       <AuthProvider>
-        <BrowserRouter>
-          <div className="flex flex-col min-h-screen">
-            <Header />
-            <div className="flex-1">
-              <Routes>
-                <Route path="/" element={<Landing />} />
-                <Route
-                  path="/members"
-                  element={
-                    <ProtectedRoute>
-                      <RoleGate requiredRole="member">
-                        <Members />
-                      </RoleGate>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="/callback" element={<Callback />} />
-                <Route
-                  path="/onboarding"
-                  element={
-                    <ProtectedRoute>
-                      <Onboarding />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/profile"
-                  element={
-                    <ProtectedRoute>
-                      <RoleGate requiredRole="member">
-                        <Profile />
-                      </RoleGate>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="*" element={<Landing />} />
-              </Routes>
+        {isHashOAuthLanding ? (
+          <RootOAuthLanding />
+        ) : (
+          <Router>
+            <div className="flex flex-col min-h-screen">
+              <Header />
+              <div className="flex-1">
+                <Routes>
+                  <Route path="/" element={<Landing />} />
+                  <Route
+                    path="/members"
+                    element={
+                      <ProtectedRoute>
+                        <RoleGate requiredRole="member">
+                          <Members />
+                        </RoleGate>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="/callback" element={<Callback />} />
+                  <Route
+                    path="/onboarding"
+                    element={
+                      <ProtectedRoute>
+                        <Onboarding />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/profile"
+                    element={
+                      <ProtectedRoute>
+                        <RoleGate requiredRole="member">
+                          <Profile />
+                        </RoleGate>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="*" element={<Landing />} />
+                </Routes>
+              </div>
+              <Footer />
             </div>
-            <Footer />
-          </div>
-        </BrowserRouter>
+          </Router>
+        )}
       </AuthProvider>
     </SiteConfigProvider>
   );

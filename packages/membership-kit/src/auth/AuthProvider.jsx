@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
-import { CmgClient, createAuthClientFromEnv } from '@cogability/sdk';
+import { AuthClient, CmgClient } from '@cogability/sdk';
 
 /**
  * AuthContext provides:
@@ -39,7 +39,18 @@ export function AuthProvider({ children }) {
 
   // Stable SDK client instances — created once, never recreated.
   const cmg = useMemo(() => new CmgClient({ host: CMG_URL, namespace: SITE_NAMESPACE }), []);
-  const auth = useMemo(() => createAuthClientFromEnv(CMG_URL), []);
+  const auth = useMemo(() => {
+    const mode = (import.meta.env.VITE_ROUTER_MODE || 'path').toLowerCase();
+    const redirectUri = mode === 'hash'
+      ? `${window.location.origin}/`
+      : `${window.location.origin}/callback`;
+    return new AuthClient({
+      authorityUrl: import.meta.env.VITE_APPID_OAUTH_SERVER_URL,
+      clientId: import.meta.env.VITE_APPID_CLIENT_ID,
+      redirectUri,
+      tokenEndpointProxy: `${CMG_URL}/auth/token`,
+    });
+  }, []);
 
   // Anonymous geofence probe — runs once on mount before any login flow.
   // Lets the landing page gate the public chat widget for non-allowed regions.
