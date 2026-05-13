@@ -261,9 +261,8 @@ export default function OnboardingPage() {
   }
 
   const goToMembers = useCallback(() => {
-    markOnboardingComplete();
     navigate('/members', { replace: true });
-  }, [navigate, user?.uid]);
+  }, [navigate]);
 
   async function handleComplete() {
     markOnboardingComplete();
