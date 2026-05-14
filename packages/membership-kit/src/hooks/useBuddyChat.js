@@ -9,7 +9,11 @@ import { CamClient } from '@cogability/sdk';
  *   3. Initialize cogbot (init config + greeting)
  *   4. Send/receive messages (JSON or SSE streaming) using the appropriate auth mode
  *
- * Returns { messages, isLoading, isInitializing, error, sendMessage, retry, streamingText }.
+ * Returns { messages, isLoading, isInitializing, error, sendMessage, retry, streamingText,
+ *           fetchConversationHistory }.
+ *
+ * retry() rotates the chat_id before re-initializing so PFC2 starts a fresh
+ * RAG checkpoint (general_thread_id) for the new conversation.
  */
 export default function useBuddyChat() {
   const [messages, setMessages] = useState([]);
@@ -163,6 +167,8 @@ export default function useBuddyChat() {
 
   const retry = useCallback(() => {
     abortRef.current?.abort();
+    // Rotate chat_id first so PFC2 opens a new RAG checkpoint on the next turn.
+    cam.rotateChatId();
     initRef.current = false;
     setMessages([]);
     setError(null);
@@ -170,5 +176,9 @@ export default function useBuddyChat() {
     initialize();
   }, [initialize]);
 
-  return { messages, isLoading, isInitializing, error, sendMessage, retry, streamingText };
+  const fetchConversationHistory = useCallback(() => {
+    return cam.fetchConversationHistory();
+  }, []);
+
+  return { messages, isLoading, isInitializing, error, sendMessage, retry, streamingText, fetchConversationHistory };
 }

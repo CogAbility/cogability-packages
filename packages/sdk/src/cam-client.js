@@ -23,6 +23,7 @@ import { parseSseStream } from './sse-parser.js';
 const KEYS = {
   UID: 'buddy_user_id',
   SID: 'buddy_cogbot_sid',
+  CHAT_ID: 'buddy_chat_id',
 };
 
 function defaultGetHostUrl() {
@@ -94,6 +95,42 @@ export class CamClient {
 
   _handleSid(data) {
     if (data?.cogbot_sid) this._setSid(data.cogbot_sid);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chat-session (chat_id) management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Return the current chat_id, creating one on first call.
+   *
+   * The chat_id is the PFC2 key for the RAG conversation checkpoint (the
+   * ``general_thread_id`` on the backend is derived from this value).
+   *
+   * @returns {string}
+   */
+  _getChatId() {
+    let chatId = this.store.get(KEYS.CHAT_ID);
+    if (!chatId) {
+      chatId = crypto.randomUUID();
+      this.store.set(KEYS.CHAT_ID, chatId);
+    }
+    return chatId;
+  }
+
+  /**
+   * Rotate the chat_id, returning the new value.
+   *
+   * Call this when the user starts a new conversation (e.g. the "New Chat"
+   * button).  PFC2 will treat the next message as belonging to a fresh
+   * ``general_thread_id``, starting an empty RAG checkpoint.
+   *
+   * @returns {string} The newly minted chat_id.
+   */
+  rotateChatId() {
+    const next = crypto.randomUUID();
+    this.store.set(KEYS.CHAT_ID, next);
+    return next;
   }
 
   // ---------------------------------------------------------------------------
@@ -257,6 +294,7 @@ export class CamClient {
       context: { global: { system: { user_id: uid } } },
       metadata: {},
       user_id: uid,
+      chat_id: this._getChatId(),
       language: this.language,
       country: this.country,
       host_url: hostUrl ?? this.getHostUrl(),
@@ -264,6 +302,41 @@ export class CamClient {
       channel: 'web',
       anonymous,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Conversation history
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetch the DI + RAG conversation history for the current chat session from
+   * PFC2's native history endpoint.
+   *
+   * This replaces the CCA2 ``cca_conversation_history`` ui_action.  The
+   * returned transcript contains only the turns stored in the RAG checkpoint
+   * (DI and RAG responses); SDI turns are excluded.
+   *
+   * @returns {Promise<import('./types.js').ConversationHistoryResponse>}
+   */
+  async fetchConversationHistory() {
+    const uid = this._getUid();
+    const chatId = this._getChatId();
+    const params = new URLSearchParams({ chat_id: chatId });
+    const sid = this._getSid();
+    if (sid) params.set('cogbot_sid', sid);
+    params.set('rcode', String(Math.floor(Math.random() * 100000)));
+
+    const url = this._url(
+      `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/conversation-history?${params}`
+    );
+
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    });
+
+    if (!res.ok) throw new Error(`CamClient: fetchConversationHistory failed (${res.status})`);
+    return res.json();
   }
 
   // ---------------------------------------------------------------------------

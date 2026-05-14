@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "lint": "eslint packages",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:install": "rm -rf /tmp/cogability-pkg-install-test && mkdir /tmp/cogability-pkg-install-test && cd /tmp/cogability-pkg-install-test && npm init -y > /dev/null && npm install @cogability/sdk @cogability/membership-kit && node -e \"const sdk = require('@cogability/sdk'); console.log('OK:', Object.keys(sdk).join(', '));\""
   },
   "repository": {
@@ -17,6 +19,11 @@
   },
   "license": "UNLICENSED",
   "devDependencies": {
-    "eslint": "^9.39.4"
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitest/coverage-v8": "^4.1.6",
+    "eslint": "^9.39.4",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.6"
   }
 }

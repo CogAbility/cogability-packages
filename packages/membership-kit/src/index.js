@@ -11,6 +11,7 @@ export { default as RoleGate } from './auth/RoleGate';
 export { useAuthorization } from './auth/useAuthorization';
 // Buddy API
 export {
+  cam,
   setAnonymousTokens,
   initCogbot,
   sendMessage,
