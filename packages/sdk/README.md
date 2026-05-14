@@ -183,6 +183,64 @@ document.getElementById('send').addEventListener('click', async () => {
 
 ---
 
+## Chat sessions and conversation history
+
+### Starting a new chat
+
+`CamClient` automatically mints and persists a `chat_id` UUID on first use. The same `chat_id` is included in every `_buildMessageBody()` call so the PFC2 backend can key the RAG conversation to a single LangGraph checkpoint (`general_thread_id`).
+
+When the user clicks "New Chat", call `rotateChatId()` before re-initializing:
+
+```js
+// New Chat — creates a fresh RAG checkpoint on the next message turn
+cam.rotateChatId();
+await cam.initAnonymous(); // or initAuthenticated(idToken)
+await cam.initCogbot();
+const greeting = await cam.fetchGreeting();
+```
+
+`rotateChatId()` mints a new UUID, persists it in the session store under `buddy_chat_id`, and returns it. All subsequent `sendMessage` / `streamMessage` calls will carry the new `chat_id`, and PFC2 will start a fresh conversation thread with no prior history.
+
+### Fetching conversation history
+
+```js
+// Retrieve the current DI + RAG conversation thread
+const history = await cam.fetchConversationHistory();
+
+console.log(history.turns);
+// [
+//   { role: 'user', content: 'What can you do?' },
+//   { role: 'assistant', content: 'I can answer your questions.' },
+// ]
+
+console.log(history.transcript_text);
+// "User: What can you do?\nAssistant: I can answer your questions."
+
+if (history.summary) {
+  console.log('Summarized prefix:', history.summary);
+}
+```
+
+`fetchConversationHistory()` calls `GET /api/cogbots/{cogbotId}/id/{uid}/conversation-history?chat_id=...` on the PFC2 backend. The response shape is:
+
+| Field | Type | Description |
+|---|---|---|
+| `thread_id` | string | The LangGraph `general_thread_id` for this chat |
+| `chat_id` | string | The `chat_id` that was sent with messages |
+| `turns` | `{ role, content }[]` | Human/assistant exchanges in order; SDI turns excluded |
+| `transcript_text` | string | Plain-text transcript, suitable for live-agent handoff |
+| `summary` | string \| null | Rolling summary from `SummarizationMiddleware` if triggered |
+
+### Session storage keys
+
+| Key | Description |
+|---|---|
+| `buddy_user_id` | Stable user UID minted on first anonymous session |
+| `buddy_cogbot_sid` | Safari-compatible session cookie fallback |
+| `buddy_chat_id` | Current chat UUID; rotated by `rotateChatId()` |
+
+---
+
 ## Session storage
 
 | Class | When to use |

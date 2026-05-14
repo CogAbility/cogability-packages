@@ -51,6 +51,20 @@ npm install
 
 `npm install` at the root sets up workspace symlinks so `membership-kit` resolves `@cogability/sdk` to the local `packages/sdk/` source instead of the published npm version. Edit either package's source freely; consumers in this repo see the changes immediately.
 
+### Running tests
+
+Unit tests use [Vitest](https://vitest.dev/) across both packages:
+
+```bash
+npm test          # run all tests once
+npm run test:watch  # watch mode for development
+```
+
+The test suite covers:
+
+- **`@cogability/sdk`** — `cam-client.chatid.test.js` (chat_id lifecycle: `_getChatId`, `rotateChatId`, `_buildMessageBody`) and `cam-client.history.test.js` (`fetchConversationHistory` URL/query params/error handling via mocked `fetch`).
+- **`@cogability/membership-kit`** — `useBuddyChat.test.jsx` (retry ordering, message clearing, greeting refresh, `fetchConversationHistory` delegation) using React Testing Library + jsdom.
+
 (A `playground/` Vite app for hot-reloaded local testing of the kit will be added as a follow-up.)
 
 ## Publishing a new version
