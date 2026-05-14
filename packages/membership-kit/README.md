@@ -99,7 +99,7 @@ import { BuddyChat } from '@cogability/membership-kit';
 | `className` | string | `''` | Extra classes applied to the outermost `div`. |
 | `hideHeader` | boolean | `false` | Hide the header bar (useful when embedding inside a card that has its own header). |
 
-The template's `src/components/BuddyChat.jsx` extends the kit's default `BuddyChat` with a **New Chat** button and a **View Transcript** panel — browse that file for a real-world customization example.
+The kit's `BuddyChat` includes a **New Chat** button in the header and a **View Transcript** panel in the footer. Both are available on every page that renders the component — including the public landing page (anonymous users) and the authenticated members page.
 
 ---
 
