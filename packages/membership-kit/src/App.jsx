@@ -134,7 +134,7 @@ export default function App({ config, overrides = {} }) {
                     path="/members"
                     element={
                       <ProtectedRoute>
-                        <RoleGate requiredRole="member">
+                        <RoleGate>
                           <Members />
                         </RoleGate>
                       </ProtectedRoute>
@@ -153,7 +153,7 @@ export default function App({ config, overrides = {} }) {
                     path="/profile"
                     element={
                       <ProtectedRoute>
-                        <RoleGate requiredRole="member">
+                        <RoleGate>
                           <Profile />
                         </RoleGate>
                       </ProtectedRoute>
