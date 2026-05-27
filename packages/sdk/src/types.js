@@ -101,4 +101,32 @@
  * @property {(key: string) => void} remove
  */
 
+/**
+ * @typedef {Object} ConversationTurn
+ * @property {string} role - "user" or "assistant".
+ * @property {string} content
+ */
+
+/**
+ * @typedef {Object} ConversationHistoryResponse
+ * @property {string} thread_id - Fully-qualified PFC2 thread identifier.
+ * @property {string} chat_id - The chat_id that was looked up.
+ * @property {ConversationTurn[]} turns - Ordered list of conversation turns.
+ * @property {string|null} transcript_text - Plain-text transcript, or null.
+ * @property {string|null} summary - Optional RAG-generated summary, or null.
+ */
+
+/**
+ * @typedef {Object} ConversationListItem
+ * @property {string} chat_id - Unique identifier for the conversation.
+ * @property {string} last_updated - ISO 8601 timestamp of the last turn.
+ * @property {string|null} title - Human-readable title, or null if untitled.
+ * @property {number|null} turn_count - Number of turns, or null if unknown.
+ */
+
+/**
+ * @typedef {Object} ConversationListResponse
+ * @property {ConversationListItem[]} conversations - List of the user's prior conversations.
+ */
+
 export {};
