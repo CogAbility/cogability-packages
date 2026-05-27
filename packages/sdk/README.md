@@ -207,6 +207,9 @@ const greeting = await cam.fetchGreeting();
 // Retrieve the current DI + RAG conversation thread
 const history = await cam.fetchConversationHistory();
 
+// Or retrieve any past conversation by its chat_id (added in 0.4.0)
+const past = await cam.fetchConversationHistory('chat-uuid-from-listConversations');
+
 console.log(history.turns);
 // [
 //   { role: 'user', content: 'What can you do?' },
@@ -221,7 +224,7 @@ if (history.summary) {
 }
 ```
 
-`fetchConversationHistory()` calls `GET /api/cogbots/{cogbotId}/id/{uid}/conversation-history?chat_id=...` on the PFC2 backend. The response shape is:
+`fetchConversationHistory(chatId?)` calls `GET /api/cogbots/{cogbotId}/id/{uid}/conversation-history?chat_id=...` on the PFC2 backend. When `chatId` is omitted the SDK falls back to the current `buddy_chat_id` in the session store. Pass an explicit id (e.g. one returned by `listConversations()`) to load a different past conversation. The response shape is:
 
 | Field | Type | Description |
 |---|---|---|
@@ -230,6 +233,44 @@ if (history.summary) {
 | `turns` | `{ role, content }[]` | Human/assistant exchanges in order; SDI turns excluded |
 | `transcript_text` | string | Plain-text transcript, suitable for live-agent handoff |
 | `summary` | string \| null | Rolling summary from `SummarizationMiddleware` if triggered |
+
+### Listing a member's prior conversations
+
+> **Available in `@cogability/sdk@0.4.0+`. Authenticated sessions only.**
+
+When the user signs in via `initAuthenticated(idToken)`, the SDK can enumerate every past chat thread that member has on record — useful for rendering a "Previous Chats" sidebar (a la babybrain.ai or ChatGPT's left rail).
+
+```js
+await cam.initAuthenticated(idToken);
+const { conversations } = await cam.listConversations();
+
+// [
+//   {
+//     chat_id: '7e5b...',
+//     last_updated: '2026-05-26T20:00:00Z',
+//     title: 'When should my baby start solids?',
+//     turn_count: 4,
+//   },
+//   ...
+// ]
+
+// Click handler: load a prior conversation into the chat widget
+async function openPastChat(chatId) {
+  const { turns } = await cam.fetchConversationHistory(chatId);
+  renderTurns(turns);
+}
+```
+
+`listConversations()` calls `GET /api/cogbots/{cogbotId}/id/{uid}/conversations` on the PFC2 backend. Response shape:
+
+| Field | Type | Description |
+|---|---|---|
+| `conversations[].chat_id` | string | UI chat identifier; pass to `fetchConversationHistory(chatId)` |
+| `conversations[].last_updated` | string | ISO 8601 timestamp of the latest checkpoint in this thread |
+| `conversations[].title` | string \| null | First user message, ellipsized to 80 chars; `null` if the thread has no human turn |
+| `conversations[].turn_count` | number \| null | Count of human + assistant exchanges, excluding rolling summary system messages |
+
+Conversations are returned newest-first, capped at 50 by the backend. Anonymous sessions receive an empty list (the underlying `uid` is a per-browser random UUID with no server-side enumeration). The endpoint requires an authenticated CAM session — see [be-pfc/docs/cascade-architecture.md — Conversation List API](https://github.com/CogAbility/be-pfc/blob/pfc-2.0/docs/cascade-architecture.md#conversation-list-api) for backend details.
 
 ### Session storage keys
 
