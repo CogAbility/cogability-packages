@@ -316,12 +316,15 @@ export class CamClient {
    * returned transcript contains only the turns stored in the RAG checkpoint
    * (DI and RAG responses); SDI turns are excluded.
    *
+   * @param {string} [chatId] - Explicit chat_id to fetch history for. When
+   *   omitted, falls back to the current session's chat_id (from the store).
+   *   Pass an id from {@link listConversations} to load a prior conversation.
    * @returns {Promise<import('./types.js').ConversationHistoryResponse>}
    */
-  async fetchConversationHistory() {
+  async fetchConversationHistory(chatId) {
     const uid = this._getUid();
-    const chatId = this._getChatId();
-    const params = new URLSearchParams({ chat_id: chatId });
+    const id = chatId ?? this._getChatId();
+    const params = new URLSearchParams({ chat_id: id });
     const sid = this._getSid();
     if (sid) params.set('cogbot_sid', sid);
     params.set('rcode', String(Math.floor(Math.random() * 100000)));
@@ -336,6 +339,25 @@ export class CamClient {
     });
 
     if (!res.ok) throw new Error(`CamClient: fetchConversationHistory failed (${res.status})`);
+    return res.json();
+  }
+
+  /**
+   * List the authenticated user's prior chat conversations for this cogbot.
+   *
+   * Calls GET /api/cogbots/{cogbotId}/id/{uid}/conversations on the be-pfc
+   * backend (forwarded by CAM). Only meaningful for authenticated sessions
+   * (initAuthenticated) — anonymous callers will receive an empty list or 401.
+   *
+   * @returns {Promise<import('./types.js').ConversationListResponse>}
+   */
+  async listConversations() {
+    const uid = this._getUid();
+    const url = this._url(
+      `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/conversations`
+    );
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error(`CamClient: listConversations failed (${res.status})`);
     return res.json();
   }
 

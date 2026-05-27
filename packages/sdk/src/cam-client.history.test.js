@@ -98,4 +98,21 @@ describe('CamClient – fetchConversationHistory', () => {
     const [url] = fetchSpy.mock.calls[0];
     expect(url).toContain(`chat_id=${newId}`);
   });
+
+  it('uses an explicit chatId when provided, ignoring the stored chat_id', async () => {
+    const storedId = cam._getChatId();
+    const explicitId = 'explicit-chat-id-abc-123';
+    expect(explicitId).not.toBe(storedId);
+    await cam.fetchConversationHistory(explicitId);
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toContain(`chat_id=${explicitId}`);
+    expect(url).not.toContain(`chat_id=${storedId}`);
+  });
+
+  it('falls back to stored chat_id when explicit chatId is undefined', async () => {
+    const storedId = cam._getChatId();
+    await cam.fetchConversationHistory(undefined);
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toContain(`chat_id=${storedId}`);
+  });
 });
