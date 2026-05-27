@@ -129,4 +129,62 @@
  * @property {ConversationListItem[]} conversations - List of the user's prior conversations.
  */
 
+/**
+ * @typedef {Object} ProfileFieldOption
+ * @property {string} [value] - The value persisted when this option is selected.
+ * @property {string} [label] - Human-readable option label.
+ */
+
+/**
+ * @typedef {Object} ProfileField
+ * @property {string} [key] - Field identifier (used as the persisted property name).
+ * @property {string} [label] - Human-readable label shown in the form.
+ * @property {('text'|'textarea'|'date'|'number'|'select'|'multiselect'|'boolean')} [field_type] -
+ *   Input type. Unknown values should degrade to ``text`` with a console warning.
+ * @property {boolean} [required] - Defaults to false.
+ * @property {string} [help_text] - Optional helper text shown beneath the input.
+ * @property {ProfileFieldOption[]} [options] - For ``select`` / ``multiselect``.
+ * @property {string} [placeholder]
+ * @property {number} [min_value] - Min for ``number`` inputs (inclusive).
+ * @property {number} [max_value] - Max for ``number`` inputs (inclusive).
+ * @property {string} [pattern] - Regex pattern for ``text`` validation.
+ * @property {string} [show_when] - Small safe expression evaluated against
+ *   sibling fields to conditionally show this field (e.g. ``"birthContext == 'premature'"``).
+ * @property {string} [prompt_label] - Override label used when this field is
+ *   rendered into the LLM ``<profile>`` prompt block (server-side only; not used by the form).
+ */
+
+/**
+ * @typedef {Object} ProfileSection
+ * @property {string} [key] - Section key; doubles as the property name on the
+ *   stored profile object (e.g. ``"parent"``, ``"children"``).
+ * @property {string} [label] - Human-readable section heading.
+ * @property {('object'|'list')} [section_type] - Whether the section holds a
+ *   single object (e.g. parent) or a repeating list of items (e.g. children).
+ * @property {number} [min_items] - For ``list`` sections.
+ * @property {number} [max_items] - For ``list`` sections.
+ * @property {string} [item_label_field] - For ``list`` sections: which field
+ *   on each item is used as the item's title in the UI (e.g. ``"name"``).
+ * @property {ProfileField[]} [fields]
+ * @property {string} [permission]
+ * @property {string[]} [whitelist_email]
+ */
+
+/**
+ * @typedef {Object} ProfileExtrasBucket
+ * @property {string} [key] - Property name on the stored profile that collects
+ *   keys not covered by any section (e.g. ``"other"``).
+ * @property {string} [label]
+ * @property {boolean} [include_in_prompt] - When true, the server appends the
+ *   bucket's content to the LLM ``<profile>`` block. UI-only fields do not
+ *   need to use this flag.
+ */
+
+/**
+ * @typedef {Object} ProfileSchema
+ * @property {number} [version] - Schema version; defaults to 1.
+ * @property {ProfileSection[]} [sections]
+ * @property {ProfileExtrasBucket} [extras_bucket]
+ */
+
 export {};

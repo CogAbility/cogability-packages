@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { useSiteConfig } from '../config/SiteConfigContext';
 import { emptyChild, FormField, fieldClass, ChildForm } from '../components/ProfileFormFields';
+import { cam } from '../services/buddyApi';
+import DynamicProfileForm, { validateProfile } from '../components/DynamicProfileForm';
 
 const APPID_OAUTH_URL = import.meta.env.VITE_APPID_OAUTH_SERVER_URL || '';
 const APPID_CLIENT_ID = import.meta.env.VITE_APPID_CLIENT_ID || '';
@@ -35,6 +37,37 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState(null);
 
+  const [schema, setSchema] = useState(null);
+  const [schemaLoaded, setSchemaLoaded] = useState(false);
+  const [dynamicValue, setDynamicValue] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetcher =
+      typeof cam?.fetchProfileSchema === 'function'
+        ? cam.fetchProfileSchema()
+        : Promise.resolve(null);
+    fetcher
+      .then((s) => { if (!cancelled) setSchema(s); })
+      .catch((err) => { console.warn('ProfilePage: fetchProfileSchema failed', err); })
+      .finally(() => { if (!cancelled) setSchemaLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!schemaLoaded || !schema) return;
+    const v = {};
+    for (const section of schema.sections || []) {
+      try {
+        const raw = localStorage.getItem(`profile_${section.key}_${user?.uid}`);
+        if (raw) v[section.key] = JSON.parse(raw);
+      } catch {
+        // ignore malformed localStorage entries
+      }
+    }
+    setDynamicValue(v);
+  }, [schemaLoaded, schema, user?.uid]);
+
   function validate() {
     const e = {};
     if (!parentData.firstName.trim()) e.firstName = oc.firstNameRequired;
@@ -59,22 +92,38 @@ export default function ProfilePage() {
   }
 
   async function handleSave() {
-    const e = validate();
-    if (Object.keys(e).length > 0) { setErrors(e); return; }
+    let ok, errs;
+    if (schema) {
+      ({ ok, errors: errs } = validateProfile(schema, dynamicValue));
+    } else {
+      errs = validate();
+      ok = Object.keys(errs).length === 0;
+    }
+
+    if (!ok) { setErrors(errs); return; }
     setErrors({});
     setIsSaving(true);
     setSavedMessage(null);
 
     if (user?.uid) {
-      localStorage.setItem(`profile_parent_${user.uid}`, JSON.stringify(parentData));
-      localStorage.setItem(`profile_children_${user.uid}`, JSON.stringify(childrenData));
+      if (schema) {
+        for (const section of schema.sections || []) {
+          const sv = dynamicValue[section.key];
+          if (sv != null) {
+            localStorage.setItem(`profile_${section.key}_${user.uid}`, JSON.stringify(sv));
+          }
+        }
+      } else {
+        localStorage.setItem(`profile_parent_${user.uid}`, JSON.stringify(parentData));
+        localStorage.setItem(`profile_children_${user.uid}`, JSON.stringify(childrenData));
+      }
     }
 
     try {
-      await cmg.saveProfile(user?.idToken, {
-        parent: parentData,
-        children: childrenData,
-      });
+      const profilePayload = schema
+        ? dynamicValue
+        : { parent: parentData, children: childrenData };
+      await cmg.saveProfile(user?.idToken, profilePayload);
       setSavedMessage(c.savedMessage);
       setTimeout(() => setSavedMessage(null), 4000);
     } catch (err) {
@@ -120,53 +169,64 @@ export default function ProfilePage() {
           </div>
         )}
 
-        <div className="bg-card rounded-2xl border border-border p-6 space-y-4">
-          <h2 className="font-black text-foreground text-sm">{c.yourInfoHeading}</h2>
+        {schemaLoaded && schema ? (
+          <DynamicProfileForm
+            schema={schema}
+            value={dynamicValue}
+            onChange={setDynamicValue}
+            errors={errors}
+          />
+        ) : (
+          <>
+            <div className="bg-card rounded-2xl border border-border p-6 space-y-4">
+              <h2 className="font-black text-foreground text-sm">{c.yourInfoHeading}</h2>
 
-          <FormField label={oc.firstNameLabel} required error={errors.firstName}>
-            <input
-              type="text"
-              value={parentData.firstName}
-              onChange={(e) => setParentData({ ...parentData, firstName: e.target.value })}
-              placeholder={oc.firstNamePlaceholder}
-              className={fieldClass(errors.firstName)}
-            />
-          </FormField>
+              <FormField label={oc.firstNameLabel} required error={errors.firstName}>
+                <input
+                  type="text"
+                  value={parentData.firstName}
+                  onChange={(e) => setParentData({ ...parentData, firstName: e.target.value })}
+                  placeholder={oc.firstNamePlaceholder}
+                  className={fieldClass(errors.firstName)}
+                />
+              </FormField>
 
-          <FormField label={oc.lastNameLabel}>
-            <input
-              type="text"
-              value={parentData.lastName}
-              onChange={(e) => setParentData({ ...parentData, lastName: e.target.value })}
-              placeholder={oc.lastNamePlaceholder}
-              className={fieldClass()}
-            />
-          </FormField>
-        </div>
+              <FormField label={oc.lastNameLabel}>
+                <input
+                  type="text"
+                  value={parentData.lastName}
+                  onChange={(e) => setParentData({ ...parentData, lastName: e.target.value })}
+                  placeholder={oc.lastNamePlaceholder}
+                  className={fieldClass()}
+                />
+              </FormField>
+            </div>
 
-        <div className="space-y-4">
-          <h2 className="font-black text-foreground text-sm px-1">{c.childrenHeading}</h2>
+            <div className="space-y-4">
+              <h2 className="font-black text-foreground text-sm px-1">{c.childrenHeading}</h2>
 
-          {childrenData.map((child, index) => (
-            <ChildForm
-              key={index}
-              index={index}
-              child={child}
-              errors={errors}
-              showRemove={childrenData.length > 1}
-              onChange={(field, value) => updateChild(index, field, value)}
-              onRemove={() => removeChild(index)}
-            />
-          ))}
+              {childrenData.map((child, index) => (
+                <ChildForm
+                  key={index}
+                  index={index}
+                  child={child}
+                  errors={errors}
+                  showRemove={childrenData.length > 1}
+                  onChange={(field, value) => updateChild(index, field, value)}
+                  onRemove={() => removeChild(index)}
+                />
+              ))}
 
-          <button
-            type="button"
-            onClick={addChild}
-            className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors"
-          >
-            {oc.addChildLabel}
-          </button>
-        </div>
+              <button
+                type="button"
+                onClick={addChild}
+                className="text-sm font-semibold text-primary hover:text-primary/80 transition-colors"
+              >
+                {oc.addChildLabel}
+              </button>
+            </div>
+          </>
+        )}
 
         <button
           type="button"

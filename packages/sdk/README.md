@@ -239,6 +239,34 @@ if (history.summary) {
 | `buddy_cogbot_sid` | Safari-compatible session cookie fallback |
 | `buddy_chat_id` | Current chat UUID; rotated by `rotateChatId()` |
 
+### Fetching the profile schema (driven by the cogbot's major)
+
+```js
+const schema = await cam.fetchProfileSchema();
+
+if (schema) {
+  // Render a dynamic form from schema.sections — e.g. with the
+  // <DynamicProfileForm> component in @cogability/membership-kit.
+} else {
+  // No profile_schema configured on this cogbot's major yet.
+  // Render the app's built-in (hard-coded) form.
+}
+```
+
+`fetchProfileSchema()` calls `GET /api/cogbots/{cogbotId}/profile-schema` on the PFC2 backend. The server resolves `cogbot_id -> CogBotConfig.major_name -> CogMajorConfig.profile_schema` and returns the typed schema. Returns `null` on HTTP 404 so callers can fall back to a built-in form during rollout — the schema is published doc-by-doc on each major, not all at once.
+
+Response shape (all fields optional, snake_case on the wire):
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | number | Schema version. Currently `1`. |
+| `sections` | `ProfileSection[]` | Ordered list of form sections (e.g. parent, children). |
+| `extras_bucket` | `ProfileExtrasBucket` | Optional bucket for ad-hoc keys not covered by any section. |
+
+Each `ProfileSection` has a `section_type` of `"object"` (single record, e.g. parent) or `"list"` (repeating items, e.g. children). Each `ProfileField` has a `field_type` of `text | textarea | date | number | select | multiselect | boolean`, plus optional `required`, `options`, `min_value` / `max_value`, `pattern`, and a small `show_when` expression for conditional visibility (e.g. `"birthContext == 'premature'"`). See `types.js` for the full JSDoc typedefs.
+
+No session or `chat_id` is required for this endpoint; the schema is per-cogbot, non-sensitive UI metadata. Auth is the same JWT/Basic surface as the rest of `/api/cogbots/*`.
+
 ---
 
 ## Session storage

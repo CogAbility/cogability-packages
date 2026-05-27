@@ -37,6 +37,7 @@ export { default as About } from './components/About';
 export { default as Testimonials } from './components/Testimonials';
 export { default as OnboardingProgressIndicator } from './components/OnboardingProgressIndicator';
 export { emptyChild, FormField, fieldClass, ChildForm } from './components/ProfileFormFields';
+export { default as DynamicProfileForm, validateProfile, evaluateShowWhen } from './components/DynamicProfileForm';
 
 // Pages (exported for override/customization)
 export { default as LoginPage } from './pages/LoginPage';
