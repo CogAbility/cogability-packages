@@ -362,6 +362,43 @@ export class CamClient {
   }
 
   // ---------------------------------------------------------------------------
+  // Profile schema
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetch the member-profile schema that drives the onboarding/profile form
+   * for this cogbot.
+   *
+   * The schema is authored on the Cloudant ``major/{name}`` doc (see be-pfc's
+   * ``profile_schema`` block) so per-vertical field sets — parent, children,
+   * pets, dietary preferences, etc. — can change without redeploying the
+   * member SPA or the kit.
+   *
+   * Resolution path on the server:
+   *
+   *     cogbot_id -> CogBotConfig.major_name -> CogMajorConfig.profile_schema
+   *
+   * Returns ``null`` when the major has no ``profile_schema`` configured
+   * (HTTP 404). Callers should treat ``null`` as "use the built-in form"
+   * — this is how rollout proceeds doc-by-doc rather than all-at-once.
+   *
+   * No session or chat_id is required; the endpoint is per-cogbot and the
+   * shape is non-sensitive UI metadata. Auth is the same JWT/Basic surface as
+   * the rest of ``/api/cogbots/*``.
+   *
+   * @returns {Promise<import('./types.js').ProfileSchema|null>}
+   */
+  async fetchProfileSchema() {
+    const url = this._url(
+      `/api/cogbots/${encodeURIComponent(this.cogbotId)}/profile-schema`
+    );
+    const res = await fetch(url, { credentials: 'include' });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`CamClient: fetchProfileSchema failed (${res.status})`);
+    return res.json();
+  }
+
+  // ---------------------------------------------------------------------------
   // Static helpers
   // ---------------------------------------------------------------------------
 

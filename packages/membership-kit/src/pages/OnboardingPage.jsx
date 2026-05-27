@@ -1,9 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { useSiteConfig } from '../config/SiteConfigContext';
 import OnboardingProgressIndicator from '../components/OnboardingProgressIndicator';
 import { emptyChild, FormField, fieldClass, ChildForm } from '../components/ProfileFormFields';
+import { cam } from '../services/buddyApi';
+import DynamicProfileForm, { validateProfile } from '../components/DynamicProfileForm';
 
 function StepYourInfo({ data, onChange, onNext, onSkip }) {
   const { onboarding: c } = useSiteConfig();
@@ -247,6 +249,38 @@ export default function OnboardingPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
+  const [schema, setSchema] = useState(null);
+  const [schemaLoaded, setSchemaLoaded] = useState(false);
+  const [dynamicValue, setDynamicValue] = useState({});
+  const [dynamicErrors, setDynamicErrors] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetcher =
+      typeof cam?.fetchProfileSchema === 'function'
+        ? cam.fetchProfileSchema()
+        : Promise.resolve(null);
+    fetcher
+      .then((s) => { if (!cancelled) setSchema(s); })
+      .catch((err) => { console.warn('OnboardingPage: fetchProfileSchema failed', err); })
+      .finally(() => { if (!cancelled) setSchemaLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!schemaLoaded || !schema) return;
+    const v = {};
+    for (const section of schema.sections || []) {
+      try {
+        const raw = localStorage.getItem(`profile_${section.key}_${user?.uid}`);
+        if (raw) v[section.key] = JSON.parse(raw);
+      } catch {
+        // ignore malformed localStorage entries
+      }
+    }
+    setDynamicValue(v);
+  }, [schemaLoaded, schema, user?.uid]);
+
   function markOnboardingComplete() {
     if (user?.uid) {
       localStorage.setItem(`onboarded_${user.uid}`, '1');
@@ -283,44 +317,115 @@ export default function OnboardingPage() {
     }
   }
 
+  async function handleDynamicComplete() {
+    const { ok, errors: errs } = validateProfile(schema, dynamicValue);
+    if (!ok) { setDynamicErrors(errs); return; }
+    setDynamicErrors({});
+    markOnboardingComplete();
+    if (user?.uid) {
+      for (const section of schema.sections || []) {
+        const sv = dynamicValue[section.key];
+        if (sv != null) {
+          localStorage.setItem(`profile_${section.key}_${user.uid}`, JSON.stringify(sv));
+        }
+      }
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await cmg.saveProfile(user?.idToken, dynamicValue);
+    } catch (err) {
+      console.error('Onboarding: failed to save profile', err);
+      setSaveError(c.profileSaveErrorWarning || 'We had trouble saving your profile, but you can still chat.');
+    } finally {
+      setIsSaving(false);
+      navigate('/members', { replace: true });
+    }
+  }
+
   return (
     <div className="min-h-[80vh] flex items-center justify-center bg-background px-4 py-12">
       <div className="bg-card rounded-2xl shadow-xl border border-border p-8 sm:p-10 w-full max-w-lg">
-        <div className="mb-8 text-center">
-          <h1 className="text-lg font-black text-foreground">{c.welcomeHeading}</h1>
-          <p className="text-muted-foreground text-sm mt-1">{c.welcomeSubheading}</p>
-        </div>
+        {!schemaLoaded ? (
+          <div className="flex items-center justify-center min-h-[200px]">
+            <span className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : schema ? (
+          <>
+            <div className="mb-8 text-center">
+              <h1 className="text-lg font-black text-foreground">{c.welcomeHeading}</h1>
+              <p className="text-muted-foreground text-sm mt-1">{c.welcomeSubheading}</p>
+            </div>
+            <DynamicProfileForm
+              schema={schema}
+              value={dynamicValue}
+              onChange={setDynamicValue}
+              errors={dynamicErrors}
+            />
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={handleDynamicComplete}
+                disabled={isSaving}
+                className="btn-primary w-full py-3 disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {isSaving && (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                )}
+                {isSaving ? (c.savingLabel || 'Saving your profile...') : (c.completeButtonLabel || 'Save & Continue')}
+              </button>
+              {saveError && (
+                <p className="text-sm text-amber-700 text-center">{saveError}</p>
+              )}
+              <button
+                type="button"
+                onClick={goToMembers}
+                disabled={isSaving}
+                className="text-sm text-muted-foreground hover:text-foreground font-semibold transition-colors text-center disabled:opacity-40"
+              >
+                {c.skipLabel}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mb-8 text-center">
+              <h1 className="text-lg font-black text-foreground">{c.welcomeHeading}</h1>
+              <p className="text-muted-foreground text-sm mt-1">{c.welcomeSubheading}</p>
+            </div>
 
-        <div className="mb-8">
-          <OnboardingProgressIndicator steps={steps} currentStep={step} />
-        </div>
+            <div className="mb-8">
+              <OnboardingProgressIndicator steps={steps} currentStep={step} />
+            </div>
 
-        {step === 1 && (
-          <StepYourInfo
-            data={parentData}
-            onChange={setParentData}
-            onNext={() => setStep(2)}
-            onSkip={goToMembers}
-          />
-        )}
-        {step === 2 && (
-          <StepBabyInfo
-            data={childrenData}
-            onChange={setChildrenData}
-            onNext={() => setStep(3)}
-            onBack={() => setStep(1)}
-            onSkip={goToMembers}
-          />
-        )}
-        {step === 3 && (
-          <StepAllSet
-            parentData={parentData}
-            childrenData={childrenData}
-            onComplete={handleComplete}
-            onBack={() => setStep(2)}
-            isSaving={isSaving}
-            saveError={saveError}
-          />
+            {step === 1 && (
+              <StepYourInfo
+                data={parentData}
+                onChange={setParentData}
+                onNext={() => setStep(2)}
+                onSkip={goToMembers}
+              />
+            )}
+            {step === 2 && (
+              <StepBabyInfo
+                data={childrenData}
+                onChange={setChildrenData}
+                onNext={() => setStep(3)}
+                onBack={() => setStep(1)}
+                onSkip={goToMembers}
+              />
+            )}
+            {step === 3 && (
+              <StepAllSet
+                parentData={parentData}
+                childrenData={childrenData}
+                onComplete={handleComplete}
+                onBack={() => setStep(2)}
+                isSaving={isSaving}
+                saveError={saveError}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
