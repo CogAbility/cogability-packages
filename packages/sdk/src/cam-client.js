@@ -353,7 +353,7 @@ export class CamClient {
    */
   async listConversations() {
     const uid = this._getUid();
-    const url = this._url(
+    const url = this._sessionUrl(
       `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/conversations`
     );
     const res = await fetch(url, { credentials: 'include' });
