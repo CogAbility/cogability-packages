@@ -126,6 +126,88 @@ describe('useBuddyChat', () => {
     expect(result.current.messages[0].content).toBe('Fresh greeting');
   });
 
+  it('limitReached is set when sendMessage throws a 429 error (anonymous)', async () => {
+    mockCam.sendMessage.mockRejectedValueOnce({ status: 429, code: 'anon_turn_limit' });
+
+    const { result } = renderHook(() => useBuddyChat());
+    await waitFor(() => expect(result.current.isInitializing).toBe(false));
+
+    expect(result.current.limitReached).toBe(false);
+
+    await act(async () => {
+      await result.current.sendMessage('hello');
+    });
+
+    expect(result.current.limitReached).toBe(true);
+    // Optimistic user message must be rolled back; only the greeting remains
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].role).toBe('assistant');
+  });
+
+  it('limitReached detected via err.body.detail.code', async () => {
+    mockCam.sendMessage.mockRejectedValueOnce({ body: { detail: { code: 'anon_turn_limit' } } });
+
+    const { result } = renderHook(() => useBuddyChat());
+    await waitFor(() => expect(result.current.isInitializing).toBe(false));
+
+    await act(async () => { await result.current.sendMessage('hello'); });
+
+    expect(result.current.limitReached).toBe(true);
+  });
+
+  it('sendMessage is a no-op when limitReached is already true', async () => {
+    mockCam.sendMessage.mockRejectedValueOnce({ status: 429 });
+
+    const { result } = renderHook(() => useBuddyChat());
+    await waitFor(() => expect(result.current.isInitializing).toBe(false));
+
+    await act(async () => { await result.current.sendMessage('first'); });
+    expect(result.current.limitReached).toBe(true);
+
+    const msgCountAfterLimit = result.current.messages.length;
+    mockCam.sendMessage.mockClear();
+
+    await act(async () => { await result.current.sendMessage('second'); });
+
+    expect(mockCam.sendMessage).not.toHaveBeenCalled();
+    expect(result.current.messages).toHaveLength(msgCountAfterLimit);
+  });
+
+  it('limitReached persists across retry() for anonymous sessions', async () => {
+    mockCam.sendMessage.mockRejectedValueOnce({ status: 429 });
+
+    const { result } = renderHook(() => useBuddyChat());
+    await waitFor(() => expect(result.current.isInitializing).toBe(false));
+
+    await act(async () => { await result.current.sendMessage('hello'); });
+    expect(result.current.limitReached).toBe(true);
+
+    await act(async () => { result.current.retry(); });
+    await waitFor(() => expect(result.current.isInitializing).toBe(false));
+
+    expect(result.current.limitReached).toBe(true);
+  });
+
+  it('turnsPerDay is read from initCogbot config anonymous_limits', async () => {
+    mockCam.initCogbot.mockResolvedValueOnce({
+      config: { streaming: false, anonymous_limits: { turns_per_day: 10 } },
+    });
+
+    const { result } = renderHook(() => useBuddyChat());
+    await waitFor(() => expect(result.current.isInitializing).toBe(false));
+
+    expect(result.current.turnsPerDay).toBe(10);
+    expect(result.current.remaining).toBe(10);
+  });
+
+  it('turnsPerDay is null when anonymous_limits absent', async () => {
+    const { result } = renderHook(() => useBuddyChat());
+    await waitFor(() => expect(result.current.isInitializing).toBe(false));
+
+    expect(result.current.turnsPerDay).toBeNull();
+    expect(result.current.remaining).toBeNull();
+  });
+
   it('fetchConversationHistory() returns history from cam', async () => {
     const { result } = renderHook(() => useBuddyChat());
     await waitFor(() => expect(result.current.isInitializing).toBe(false));

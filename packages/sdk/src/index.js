@@ -18,7 +18,7 @@
  *   parseSseStream — async generator over a fetch Response body
  */
 
-export { CamClient } from './cam-client.js';
+export { CamClient, CamLimitError } from './cam-client.js';
 export { CmgClient } from './cmg-client.js';
 export { AuthClient, createAuthClientFromEnv } from './auth-client.js';
 export { BrowserSessionStore, MemorySessionStore } from './session-store.js';

@@ -10,17 +10,34 @@ import { CamClient } from '@cogability/sdk';
  *   4. Send/receive messages (JSON or SSE streaming) using the appropriate auth mode
  *
  * Returns { messages, isLoading, isInitializing, error, sendMessage, retry, streamingText,
- *           fetchConversationHistory }.
+ *           fetchConversationHistory, isAnonymous, turnsPerDay, remaining, limitReached }.
  *
  * retry() rotates the chat_id before re-initializing so PFC2 starts a fresh
  * RAG checkpoint (general_thread_id) for the new conversation.
+ *
+ * limitReached is sticky for the session once set — daily limits persist across
+ * new chats for the same anonymous uid.
  */
+
+function isAnonymousLimitError(err) {
+  return (
+    err?.status === 429 ||
+    err?.code === 'anon_turn_limit' ||
+    err?.body?.detail?.code === 'anon_turn_limit' ||
+    err?.body?.code === 'anon_turn_limit' ||
+    String(err?.message ?? '').includes('(429)')
+  );
+}
+
 export default function useBuddyChat() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState(null);
   const [streamingText, setStreamingText] = useState('');
+  const [turnsPerDay, setTurnsPerDay] = useState(null);
+  const [turnsUsed, setTurnsUsed] = useState(0);
+  const [limitReached, setLimitReached] = useState(false);
   const initRef = useRef(false);
   const streamingRef = useRef(false);
   const abortRef = useRef(null);
@@ -43,6 +60,9 @@ export default function useBuddyChat() {
 
       const initData = await cam.initCogbot();
       streamingRef.current = initData?.config?.streaming === true;
+
+      const rawLimit = initData?.config?.anonymous_limits?.turns_per_day ?? null;
+      setTurnsPerDay(typeof rawLimit === 'number' ? rawLimit : null);
 
       try {
         const greetingData = await cam.fetchGreeting();
@@ -72,7 +92,7 @@ export default function useBuddyChat() {
   }, [initialize]);
 
   const sendMessage = useCallback(async (text) => {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || limitReached) return;
 
     const userMsg = { role: 'user', content: text.trim(), id: crypto.randomUUID() };
     setMessages((prev) => [...prev, userMsg]);
@@ -130,8 +150,14 @@ export default function useBuddyChat() {
             setMessages((prev) => [...prev, ...botMessages]);
           }
         }
+        if (anonymousRef.current) setTurnsUsed((n) => n + 1);
       } catch (err) {
-        if (err.name !== 'AbortError') {
+        if (err.name === 'AbortError') {
+          // intentional abort, no-op
+        } else if (isAnonymousLimitError(err) && anonymousRef.current) {
+          setLimitReached(true);
+          setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+        } else {
           console.error('BuddyChat: stream failed', err);
           setError('Something went wrong sending your message.');
         }
@@ -156,14 +182,20 @@ export default function useBuddyChat() {
           });
         }
         setMessages((prev) => [...prev, ...botMessages]);
+        if (anonymousRef.current) setTurnsUsed((n) => n + 1);
       } catch (err) {
-        console.error('BuddyChat: message failed', err);
-        setError('Something went wrong sending your message.');
+        if (isAnonymousLimitError(err) && anonymousRef.current) {
+          setLimitReached(true);
+          setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+        } else {
+          console.error('BuddyChat: message failed', err);
+          setError('Something went wrong sending your message.');
+        }
       } finally {
         setIsLoading(false);
       }
     }
-  }, [isLoading]);
+  }, [isLoading, limitReached]);
 
   const retry = useCallback(() => {
     abortRef.current?.abort();
@@ -173,6 +205,8 @@ export default function useBuddyChat() {
     setMessages([]);
     setError(null);
     setStreamingText('');
+    // limitReached and turnsUsed are intentionally NOT reset here:
+    // anonymous daily limits persist across new chats for the same uid.
     initialize();
   }, [initialize]);
 
@@ -180,5 +214,20 @@ export default function useBuddyChat() {
     return cam.fetchConversationHistory();
   }, []);
 
-  return { messages, isLoading, isInitializing, error, sendMessage, retry, streamingText, fetchConversationHistory };
+  const remaining = turnsPerDay != null ? Math.max(0, turnsPerDay - turnsUsed) : null;
+
+  return {
+    messages,
+    isLoading,
+    isInitializing,
+    error,
+    sendMessage,
+    retry,
+    streamingText,
+    fetchConversationHistory,
+    isAnonymous: anonymousRef.current,
+    turnsPerDay,
+    remaining,
+    limitReached,
+  };
 }

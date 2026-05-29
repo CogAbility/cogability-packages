@@ -26,6 +26,56 @@ const KEYS = {
   CHAT_ID: 'buddy_chat_id',
 };
 
+/**
+ * Error thrown on non-OK HTTP responses from CAM API calls.
+ * Includes parsed response body and extracted error code if available.
+ */
+export class CamLimitError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ status: number, code?: string, body?: unknown }} options
+   */
+  constructor(message, { status, code, body } = {}) {
+    super(message);
+    this.name = 'CamLimitError';
+    this.status = status;
+    this.code = code;
+    this.body = body;
+  }
+}
+
+/**
+ * Parse HTTP error response and extract error code from JSON body.
+ * Handles both nested (body.detail.code) and top-level (body.code) code locations.
+ *
+ * @async
+ * @param {Response} res - The fetch Response object.
+ * @param {string} label - The operation label for the error message.
+ * @returns {Promise<CamLimitError>}
+ */
+async function _errorFromResponse(res, label) {
+  let body;
+  let code;
+
+  // Attempt to parse JSON body if content-type suggests JSON
+  try {
+    const contentType = res.headers.get('content-type');
+    if (contentType?.includes('application/json')) {
+      body = await res.json();
+      // Extract code from nested detail or top level
+      code = body?.detail?.code ?? body?.code;
+    }
+  } catch {
+    // If JSON parsing fails, body remains undefined
+  }
+
+  return new CamLimitError(`${label} failed (${res.status})`, {
+    status: res.status,
+    code,
+    body,
+  });
+}
+
 function defaultGetHostUrl() {
   if (typeof window !== 'undefined') return window.location.href;
   return '';
@@ -231,6 +281,7 @@ export class CamClient {
    * @param {string} text
    * @param {{ anonymous?: boolean, hostUrl?: string }} [options]
    * @returns {Promise<import('./types.js').MessageResponse>}
+   * @throws {CamLimitError} On non-OK HTTP response.
    */
   async sendMessage(text, { anonymous = true, hostUrl } = {}) {
     const uid = this._getUid();
@@ -249,7 +300,7 @@ export class CamClient {
       credentials: 'include',
     });
 
-    if (!res.ok) throw new Error(`CamClient: sendMessage failed (${res.status})`);
+    if (!res.ok) throw await _errorFromResponse(res, 'CamClient: sendMessage');
     return res.json();
   }
 
@@ -264,6 +315,7 @@ export class CamClient {
    * @param {string} text
    * @param {{ anonymous?: boolean, hostUrl?: string, signal?: AbortSignal }} [options]
    * @yields {import('./types.js').SseEvent}
+   * @throws {CamLimitError} On non-OK HTTP response.
    */
   async *streamMessage(text, { anonymous = true, hostUrl, signal } = {}) {
     const uid = this._getUid();
@@ -283,7 +335,7 @@ export class CamClient {
       signal,
     });
 
-    if (!res.ok) throw new Error(`CamClient: streamMessage failed (${res.status})`);
+    if (!res.ok) throw await _errorFromResponse(res, 'CamClient: streamMessage');
 
     yield* parseSseStream(res, { signal });
   }

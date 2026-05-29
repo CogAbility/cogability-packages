@@ -1,14 +1,28 @@
 import { useState, useRef, useEffect } from 'react';
 import useBuddyChat from '../hooks/useBuddyChat';
 import { useSiteConfig } from '../config/SiteConfigContext';
+import { useAuth } from '../auth/AuthProvider';
 
 function prepareHtml(html) {
   return html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
 }
 
 export default function BuddyChat({ height, className = '', hideHeader = false }) {
-  const { hero, images, botName } = useSiteConfig();
-  const { messages, isLoading, isInitializing, error, sendMessage, retry, streamingText } = useBuddyChat();
+  const { hero, images, botName, chat } = useSiteConfig();
+  const { login } = useAuth();
+  const {
+    messages,
+    isLoading,
+    isInitializing,
+    error,
+    sendMessage,
+    retry,
+    streamingText,
+    isAnonymous,
+    turnsPerDay,
+    remaining,
+    limitReached,
+  } = useBuddyChat();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -24,6 +38,18 @@ export default function BuddyChat({ height, className = '', hideHeader = false }
     setInput('');
     inputRef.current?.focus();
   };
+
+  const handleBecomeMember = () => login('/members');
+
+  const limitHintTemplate = chat?.limitHintTemplate ?? '{remaining} of {limit} free messages left today';
+  const limitReachedHeading = chat?.limitReachedHeading ?? "You've reached today's free limit";
+  const limitReachedBody = chat?.limitReachedBody ?? "Log in now and become a member for higher usage limits — it's free!";
+  const limitReachedCtaLabel = chat?.limitReachedCtaLabel ?? "Become a Member — it's free!";
+
+  const showLimitHint = isAnonymous && turnsPerDay != null && !limitReached;
+  const limitHint = showLimitHint
+    ? limitHintTemplate.replace('{remaining}', remaining).replace('{limit}', turnsPerDay)
+    : null;
 
   return (
     <div
@@ -88,31 +114,52 @@ export default function BuddyChat({ height, className = '', hideHeader = false }
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
-      <form
-        onSubmit={handleSubmit}
-        className="flex items-center gap-2 px-3 py-2.5 bg-white border-t border-gray-200 flex-shrink-0"
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question..."
-          disabled={isInitializing}
-          className="flex-1 min-w-0 bg-gray-100 rounded-full px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 transition-shadow"
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || isLoading || isInitializing}
-          className="flex-shrink-0 w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          aria-label="Send message"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12h12m0 0l-5.25-5.25M18 12l-5.25 5.25" />
-          </svg>
-        </button>
-      </form>
+      {/* Limit reached CTA — replaces input area */}
+      {limitReached ? (
+        <div className="flex flex-col items-center gap-3 px-4 py-5 bg-white border-t border-gray-200 flex-shrink-0 text-center">
+          <p className="text-sm font-bold text-gray-800">{limitReachedHeading}</p>
+          <p className="text-xs text-gray-500 leading-relaxed max-w-xs">{limitReachedBody}</p>
+          <button
+            onClick={handleBecomeMember}
+            className="mt-1 rounded-full bg-primary px-5 py-2 text-sm font-bold text-white hover:bg-primary/90 transition-colors"
+          >
+            {limitReachedCtaLabel}
+          </button>
+        </div>
+      ) : (
+        /* Input area */
+        <div className="flex-shrink-0 bg-white border-t border-gray-200">
+          {showLimitHint && (
+            <p className="text-center text-[11px] text-gray-400 pt-1.5 px-3 leading-none">
+              {limitHint}
+            </p>
+          )}
+          <form
+            onSubmit={handleSubmit}
+            className="flex items-center gap-2 px-3 py-2.5"
+          >
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask a question..."
+              disabled={isInitializing}
+              className="flex-1 min-w-0 bg-gray-100 rounded-full px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 transition-shadow"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || isLoading || isInitializing}
+              className="flex-shrink-0 w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              aria-label="Send message"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12h12m0 0l-5.25-5.25M18 12l-5.25 5.25" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

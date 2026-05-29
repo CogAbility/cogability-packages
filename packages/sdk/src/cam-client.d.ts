@@ -11,6 +11,13 @@ import type {
   ChildInfo,
 } from './types.js';
 
+export class CamLimitError extends Error {
+  status: number;
+  code?: string;
+  body?: unknown;
+  constructor(message: string, options: { status: number; code?: string; body?: unknown });
+}
+
 export class CamClient {
   host: string;
   cogbotId: string;

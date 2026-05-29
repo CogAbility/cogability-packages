@@ -1,6 +1,6 @@
 {
   "name": "@cogability/sdk",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "type": "module",
   "description": "Framework-agnostic JavaScript SDK for CogAbility CAM and CMG APIs",
   "exports": {
