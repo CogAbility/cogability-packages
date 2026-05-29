@@ -62,10 +62,31 @@ describe('CamClient – listConversations', () => {
     expect(url).toContain('/api/cogbots/test-cogbot/');
   });
 
-  it('URL ends with /conversations (no extra query params)', async () => {
+  it('URL contains /conversations path segment', async () => {
     await cam.listConversations();
     const [url] = fetchSpy.mock.calls[0];
-    expect(url).toMatch(/\/conversations$/);
+    expect(url).toContain('/conversations');
+  });
+
+  it('URL includes cache-busting rcode query param', async () => {
+    await cam.listConversations();
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toMatch(/[?&]rcode=\d+/);
+  });
+
+  it('URL includes cogbot_sid when a sid is stored in the session', async () => {
+    // Seed a sid into the session (simulating what _handleSid does after init)
+    cam._setSid('test-sid-value');
+    await cam.listConversations();
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toContain('cogbot_sid=test-sid-value');
+  });
+
+  it('URL does not include cogbot_sid when no sid is stored', async () => {
+    // Fresh cam — no sid set
+    await cam.listConversations();
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).not.toContain('cogbot_sid');
   });
 
   it('uses credentials: include', async () => {
