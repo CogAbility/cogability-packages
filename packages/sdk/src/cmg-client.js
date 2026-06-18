@@ -54,6 +54,52 @@ export class CmgClient {
       roles: data.roles ?? [],
       geofenced: data.geofenced === true,
       geofenceMessage: data.geofenceMessage ?? null,
+      codeRequired: data.codeRequired === true,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Access code redemption
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Redeem an access code to provision membership for a gated namespace.
+   *
+   * On success the server auto-provisions the user and returns resolved roles
+   * (same shape as a successful `validateMembership`). On a bad/expired code
+   * the server returns 400 with `error: 'invalid_code'`; the result is returned
+   * (not thrown) so the provider can surface a retry UI. On service unavailable
+   * (503) an error is thrown, matching the fail-hard convention of other mutating
+   * methods.
+   *
+   * @param {Object} options
+   * @param {string} options.idToken - App ID JWT id_token.
+   * @param {string} [options.namespace] - Override the namespace set at construction.
+   * @param {string} options.code - The access code entered by the user.
+   * @returns {Promise<import('./types.js').RedeemCodeResult>}
+   */
+  async redeemCode({ idToken, namespace: namespaceOverride, code }) {
+    const namespace = namespaceOverride ?? this.namespace;
+    const res = await fetch(`${this.host}/auth/redeem-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, namespace, code }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (res.status === 503) {
+      throw new Error(data.error || `CmgClient: redeemCode service unavailable (503)`);
+    }
+
+    return {
+      isMember: data.isMember === true,
+      autoProvisioned: data.autoProvisioned === true,
+      roles: data.roles ?? [],
+      geofenced: data.geofenced === true,
+      geofenceMessage: data.geofenceMessage ?? null,
+      codeRequired: data.codeRequired === true,
+      error: data.error ?? null,
     };
   }
 

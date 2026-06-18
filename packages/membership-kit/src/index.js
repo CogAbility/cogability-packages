@@ -27,6 +27,7 @@ export {
 export { default as useBuddyChat } from './hooks/useBuddyChat';
 
 // Components
+export { default as AccessCodeChallenge } from './components/AccessCodeChallenge';
 export { default as BuddyChat } from './components/BuddyChat';
 export { default as CogBotEmbed } from './components/CogBotEmbed';
 export { default as Header } from './components/Header';

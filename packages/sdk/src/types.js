@@ -45,6 +45,18 @@
  * @property {Role[]} roles - Roles granted to this user in the namespace.
  * @property {boolean} geofenced - True when CMG says this IP is outside the allowed region.
  * @property {string|null} geofenceMessage - Human-readable message when geofenced.
+ * @property {boolean} codeRequired - True when the namespace requires an access code to join.
+ */
+
+/**
+ * @typedef {Object} RedeemCodeResult
+ * @property {boolean} isMember - True when the code was valid and membership was provisioned.
+ * @property {boolean} autoProvisioned - True when CMG auto-created the membership record.
+ * @property {Role[]} roles - Roles granted on success; empty on failure.
+ * @property {boolean} geofenced - True when CMG says this IP is outside the allowed region.
+ * @property {string|null} geofenceMessage - Human-readable message when geofenced.
+ * @property {boolean} codeRequired - True when the code was rejected and a retry is possible.
+ * @property {string|null} error - 'invalid_code' on a bad/expired code, null on success.
  */
 
 /**

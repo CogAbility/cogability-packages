@@ -20,6 +20,7 @@ export type {
   SessionStore,
   Role,
   MembershipResult,
+  RedeemCodeResult,
   GeofenceResult,
   // Messaging
   SseEvent,
