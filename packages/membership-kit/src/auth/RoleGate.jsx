@@ -1,6 +1,8 @@
 import { useAuthorization } from './useAuthorization';
+import { useAuth } from './AuthProvider';
 import { useSiteConfig } from '../config/SiteConfigContext';
 import AccessDenied from '../pages/AccessDenied';
+import AccessCodeChallenge from '../components/AccessCodeChallenge';
 
 /**
  * Renders children only when the authenticated user passes CMG validation
@@ -12,6 +14,7 @@ import AccessDenied from '../pages/AccessDenied';
 export default function RoleGate({ requiredRole, children }) {
   const { roleGate: c } = useSiteConfig();
   const { hasRole, isMember, isValidating, validationError, geofenced, geofenceMessage } = useAuthorization();
+  const { codeRequired } = useAuth();
 
   if (isValidating) {
     return (
@@ -26,6 +29,14 @@ export default function RoleGate({ requiredRole, children }) {
 
   if (geofenced) {
     return <AccessDenied reason={geofenceMessage || c.defaultGeofenceMessage} variant="geofenced" />;
+  }
+
+  // When CMG reports the namespace requires an access code (and the user is not
+  // yet a member), present the redemption form instead of the generic denial.
+  // On a successful redeem, AuthProvider flips isMember=true / codeRequired=false
+  // and this gate falls through to render its children.
+  if (codeRequired && !isMember) {
+    return <AccessCodeChallenge />;
   }
 
   if (validationError || !isMember) {
