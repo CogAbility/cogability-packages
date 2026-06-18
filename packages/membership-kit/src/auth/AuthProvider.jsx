@@ -8,7 +8,10 @@ import { AuthClient, CmgClient } from '@cogability/sdk';
  *   isMember              - boolean, true only when CMG confirmed namespace membership
  *   roles                 - array of { namespace, name, display_name }
  *   autoProvisioned       - boolean, true when CMG auto-created the membership on this login
- *   membershipStatus      - "none" | "checking" | "member" | "not_member" | "error"
+ *   membershipStatus      - "none" | "checking" | "member" | "not_member" | "code_required" | "error"
+ *   codeRequired          - boolean, true when CMG says this namespace needs an access code
+ *   codeError             - string | null, set after a failed redeemCode attempt
+ *   codeSubmitting        - boolean, true while a redeemCode call is in-flight
  *   geofenced             - boolean, true when CMG says this IP is outside the allowed region
  *   geofenceMessage       - string | null
  *   geofenceChecking      - boolean, true while the initial anonymous geofence probe is in-flight
@@ -16,6 +19,7 @@ import { AuthClient, CmgClient } from '@cogability/sdk';
  *   error                 - string | null
  *   login(returnTo)       - redirects to App ID for authentication
  *   handleCallback()      - processes the redirect callback, returns { success, autoProvisioned }
+ *   redeemCode(code)      - submits an access code; resolves { success, geofenced, unavailable }
  *   logout()              - clears session
  *   cmg                   - CmgClient instance (available to child hooks via useAuth())
  */
@@ -34,6 +38,9 @@ export function AuthProvider({ children }) {
   const [geofenceMessage, setGeofenceMessage] = useState(null);
   const [geofenceChecking, setGeofenceChecking] = useState(true);
   const [membershipStatus, setMembershipStatus] = useState('none');
+  const [codeRequired, setCodeRequired] = useState(false);
+  const [codeError, setCodeError] = useState(null);
+  const [codeSubmitting, setCodeSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -75,7 +82,14 @@ export function AuthProvider({ children }) {
       setRoles(result.roles);
       setGeofenced(result.geofenced);
       setGeofenceMessage(result.geofenceMessage);
-      setMembershipStatus(result.isMember ? 'member' : 'not_member');
+      if (result.codeRequired) {
+        setCodeRequired(true);
+        setCodeError(null);
+        setMembershipStatus('code_required');
+      } else {
+        setCodeRequired(false);
+        setMembershipStatus(result.isMember ? 'member' : 'not_member');
+      }
       return { autoProvisioned: !!result.autoProvisioned, hasProfile: !!result.hasProfile };
     } catch (err) {
       console.error('AuthProvider: membership validation error', err);
@@ -84,6 +98,7 @@ export function AuthProvider({ children }) {
       setRoles([]);
       setGeofenced(false);
       setGeofenceMessage(null);
+      setCodeRequired(false);
       setMembershipStatus('error');
       return { autoProvisioned: false, hasProfile: false };
     }
@@ -143,6 +158,42 @@ export function AuthProvider({ children }) {
     }
   }, [auth, validateMembership]);
 
+  const redeemCode = useCallback(async (code) => {
+    const idToken = user?.idToken;
+    if (!idToken) return { success: false, unavailable: false, geofenced: false };
+    setCodeSubmitting(true);
+    setCodeError(null);
+    try {
+      const result = await cmg.redeemCode({ idToken, code });
+      if (result.isMember) {
+        setIsMember(true);
+        setAutoProvisioned(result.autoProvisioned);
+        setRoles(result.roles);
+        setCodeRequired(false);
+        setCodeError(null);
+        setMembershipStatus('member');
+        return { success: true, geofenced: false, unavailable: false };
+      }
+      if (result.geofenced) {
+        setGeofenced(true);
+        setGeofenceMessage(result.geofenceMessage);
+        setCodeRequired(false);
+        setMembershipStatus('not_member');
+        return { success: false, geofenced: true, unavailable: false };
+      }
+      // invalid_code or other 400 — keep code_required state, surface generic error
+      setCodeError('The code you entered is invalid or has expired. Please try again.');
+      return { success: false, geofenced: false, unavailable: false };
+    } catch (err) {
+      // 503 or network failure
+      console.error('AuthProvider: redeemCode error', err);
+      setCodeError('The access code service is temporarily unavailable. Please try again later.');
+      return { success: false, geofenced: false, unavailable: true };
+    } finally {
+      setCodeSubmitting(false);
+    }
+  }, [cmg, user]);
+
   const logout = useCallback(async () => {
     sessionStorage.removeItem('cam_token');
     sessionStorage.removeItem('cam_access_token');
@@ -155,6 +206,8 @@ export function AuthProvider({ children }) {
     setRoles([]);
     setGeofenced(false);
     setGeofenceMessage(null);
+    setCodeRequired(false);
+    setCodeError(null);
     setMembershipStatus('none');
     setError(null);
   }, [auth]);
@@ -171,10 +224,14 @@ export function AuthProvider({ children }) {
       geofenceMessage,
       geofenceChecking,
       membershipStatus,
+      codeRequired,
+      codeError,
+      codeSubmitting,
       isLoading,
       error,
       login,
       handleCallback,
+      redeemCode,
       logout,
       cmg,
     }}>

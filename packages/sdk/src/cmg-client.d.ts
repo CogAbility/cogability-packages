@@ -1,4 +1,4 @@
-import type { CmgClientOptions, MembershipResult, GeofenceResult } from './types.js';
+import type { CmgClientOptions, MembershipResult, GeofenceResult, RedeemCodeResult } from './types.js';
 
 export class CmgClient {
   host: string;
@@ -12,6 +12,13 @@ export class CmgClient {
    * auto-provisions if configured, and returns resolved roles.
    */
   validateMembership(idToken: string, namespaceOverride?: string): Promise<MembershipResult>;
+
+  /**
+   * Redeem an access code to provision membership for a gated namespace.
+   * Throws on 503 (service unavailable); returns a result object on 200/400 so the
+   * caller can branch on isMember / error / geofenced without try/catch for normal failures.
+   */
+  redeemCode(options: { idToken: string; namespace?: string; code: string }): Promise<RedeemCodeResult>;
 
   /**
    * Check geofence status for an anonymous visitor.
