@@ -79,10 +79,67 @@ const cmg = new CmgClient({
 });
 
 // Validate a logged-in user's membership
-const { isMember, roles, geofenced } = await cmg.validateMembership(idToken);
+const { isMember, roles, geofenced, codeRequired } = await cmg.validateMembership(idToken);
 
 // Check geofence for an anonymous visitor (fails open)
 const { geofenced, message } = await cmg.checkGeofence();
+```
+
+### `validateMembership(idToken, namespace?)` — return shape (`MembershipResult`)
+
+| Field | Type | Description |
+|---|---|---|
+| `isMember` | boolean | CMG confirmed namespace membership. |
+| `autoProvisioned` | boolean | CMG auto-created the membership record on this login. |
+| `hasProfile` | boolean | Member has a stored profile in CMG. |
+| `roles` | `Role[]` | Roles granted to this user in the namespace. |
+| `geofenced` | boolean | This IP is outside the allowed region. |
+| `geofenceMessage` | string \| null | Human-readable message when geofenced. |
+| `codeRequired` | boolean | The namespace requires an access code to join. `true` when the user is authenticated but not yet a member because the namespace is code-gated. See `redeemCode` below. |
+
+### `redeemCode({ idToken, code, namespace? })` — access-code redemption
+
+Provisions membership for a code-gated namespace. Call this after `validateMembership` returns `codeRequired: true` and the user has entered a code.
+
+On success the server auto-provisions the user and returns resolved roles (same shape as a successful `validateMembership`). On an invalid or expired code the server returns HTTP 400 and the result is **returned** (not thrown) so the caller can surface a retry UI. On HTTP 503 an error is **thrown**.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `idToken` | string | yes | App ID JWT id_token. |
+| `code` | string | yes | Access code entered by the user. |
+| `namespace` | string | no | Override the namespace set at construction. |
+
+**Returns `RedeemCodeResult`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `isMember` | boolean | `true` when the code was valid and membership was provisioned. |
+| `autoProvisioned` | boolean | `true` when CMG auto-created the membership record. |
+| `roles` | `Role[]` | Roles granted on success; empty on failure. |
+| `geofenced` | boolean | IP is outside the allowed region. |
+| `geofenceMessage` | string \| null | Human-readable geofence message. |
+| `codeRequired` | boolean | `true` when the code was rejected and a retry is still possible. |
+| `error` | string \| null | `'invalid_code'` on a bad/expired code; `null` on success. |
+
+**Error behavior:**
+
+| HTTP status | Behavior |
+|---|---|
+| 200 (success) | Returns result with `isMember: true`, `roles` populated. |
+| 400 (invalid code) | Returns result with `isMember: false`, `error: 'invalid_code'`, `codeRequired: true`. |
+| 503 (service unavailable) | **Throws** an `Error`. |
+
+```js
+// After validateMembership returns codeRequired: true
+const result = await cmg.redeemCode({ idToken, code: 'ABC-123' });
+
+if (result.isMember) {
+  console.log('Access granted. Roles:', result.roles);
+} else if (result.error === 'invalid_code') {
+  console.warn('Invalid or expired code — prompt the user to retry');
+} else if (result.geofenced) {
+  console.warn('Geofenced:', result.geofenceMessage);
+}
 ```
 
 ## AuthClient — OIDC login flow (browser only)

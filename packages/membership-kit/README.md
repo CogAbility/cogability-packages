@@ -151,6 +151,112 @@ const { user, idToken, isLoading, login, logout } = useAuth();
 
 ---
 
+## Access-code membership gate
+
+Some namespaces require an invite/access code before a logged-in user can become a member. `AuthProvider` handles the full redemption flow; `RoleGate` and `AccessCodeChallenge` surface it to the user automatically.
+
+**End-user experience:** the user logs in normally → `AuthProvider` calls `validateMembership` → if the namespace is code-gated, the member area shows a code-entry form instead of the chat → the user enters their code → on a valid code, membership is provisioned and the member area loads immediately, with no page reload required.
+
+### AuthProvider — access-code state
+
+After login, if `validateMembership` returns `codeRequired: true`, `AuthProvider` sets `membershipStatus` to `'code_required'` and exposes the following additional state via `useAuth()`:
+
+| Context value | Type | Description |
+|---|---|---|
+| `codeRequired` | boolean | `true` when the namespace requires a code and the user is not yet a member. |
+| `codeError` | string \| null | Human-readable error message after a failed `redeemCode` attempt; `null` otherwise. Set to a generic "invalid or expired" message on HTTP 400, or a "service temporarily unavailable" message on a 503/network failure. |
+| `codeSubmitting` | boolean | `true` while a `redeemCode` call is in-flight. Useful for disabling the submit button and showing a spinner. |
+| `membershipStatus` | string | `'code_required'` when awaiting a code, plus the standard values `'none' \| 'checking' \| 'member' \| 'not_member' \| 'error'`. |
+
+### `redeemCode(code)` — context function
+
+```jsx
+const { redeemCode, codeSubmitting, codeError } = useAuth();
+
+const result = await redeemCode('ABC-123');
+// result: { success: boolean, geofenced: boolean, unavailable: boolean }
+```
+
+| Return field | Type | Description |
+|---|---|---|
+| `success` | boolean | `true` when the code was accepted and `isMember` is now `true`. |
+| `geofenced` | boolean | `true` when the user's IP was rejected by the geofence after code entry. |
+| `unavailable` | boolean | `true` when the redemption service returned 503 or a network error occurred. |
+
+On success, `AuthProvider` automatically flips `isMember` to `true`, populates `roles`, and clears `codeRequired` — no further action needed. On failure, `codeError` is set and `codeRequired` remains `true` so the user can retry.
+
+### RoleGate — automatic code-challenge rendering
+
+`RoleGate` checks `codeRequired && !isMember` before the standard membership check. When that condition is true it renders `<AccessCodeChallenge />` instead of `<AccessDenied />`. Once `redeemCode` succeeds and `isMember` becomes `true`, the gate re-renders and passes through to its children — no routing change required.
+
+```jsx
+import { RoleGate } from '@cogability/membership-kit';
+
+// Wrap any page that requires membership:
+<RoleGate>
+  <MembersPage />
+</RoleGate>
+
+// With an optional role check:
+<RoleGate requiredRole="bab:premium">
+  <PremiumContent />
+</RoleGate>
+```
+
+| Prop | Type | Description |
+|---|---|---|
+| `requiredRole` | string | Optional. After membership is confirmed, also verify this role (e.g. `"member"` or `"bab:premium"`). |
+| `children` | ReactNode | Content to render when all checks pass. |
+
+**Render logic (in order):**
+
+1. Validating → spinner
+2. Geofenced → `<AccessDenied variant="geofenced" />`
+3. `codeRequired && !isMember` → `<AccessCodeChallenge />`
+4. Not a member / validation error → `<AccessDenied />`
+5. `requiredRole` not held → `<AccessDenied />`
+6. All checks pass → `children`
+
+### `AccessCodeChallenge` component
+
+A self-contained code-entry card. Reads `codeRequired`, `codeError`, `codeSubmitting`, and `redeemCode` from `AuthContext`; returns `null` when `codeRequired` is `false`, making it safe to mount unconditionally.
+
+`RoleGate` renders this automatically — you only need to import it directly if you want to place the form somewhere other than the gate.
+
+```jsx
+import { AccessCodeChallenge } from '@cogability/membership-kit';
+
+<AccessCodeChallenge
+  title="Enter your access code"
+  description="This area is available to members with an access code."
+  placeholder="Access code"
+  submitLabel="Submit"
+  onSuccess={() => navigate('/members')}
+/>
+```
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `title` | string | `'Enter your access code'` | Card heading. |
+| `description` | string | `'This area is available to members with an access code. Enter yours below to continue.'` | Body copy beneath the heading. |
+| `placeholder` | string | `'Access code'` | Input placeholder and `aria-label`. |
+| `submitLabel` | string | `'Submit'` | Submit button label. |
+| `successMessage` | string | `'Access granted.'` | Screen-reader-only live-region text announced after successful redemption. |
+| `onSuccess` | function | — | Optional callback fired after `redeemCode` returns `success: true`. |
+
+### Required environment variables
+
+| Variable | Description |
+|---|---|
+| `VITE_CMG_URL` | Base URL of the CMG service (e.g. `https://cmg.example.com`). Defaults to `http://localhost:3010` in dev. |
+| `VITE_SITE_NAMESPACE` | Site/cogbot namespace (e.g. `bab`). Defaults to `'bab'` in dev. |
+
+Both variables are read by `AuthProvider` at startup to construct the `CmgClient` instance. They must be set in your `.env` (or deployment environment) for the access-code flow to reach the correct CMG endpoint.
+
+> For a full picture of the access-code system — CMG backend routes, code provisioning, and admin tooling — see the cross-service hub doc: [`cac-coguniversity-access-codes/docs/access-code-membership.md`](../../cac-coguniversity-access-codes/docs/access-code-membership.md).
+
+---
+
 ## Exported components and pages
 
 | Export | Description |
@@ -168,6 +274,7 @@ const { user, idToken, isLoading, login, logout } = useAuth();
 | `ProfilePage` | Member profile management |
 | `CallbackPage` | OAuth callback handler |
 | `AccessDenied` | Non-member / role-denied screen |
+| `AccessCodeChallenge` | Access-code entry form (rendered by `RoleGate` automatically; see above) |
 | `AuthProvider` | OIDC auth context provider |
 | `ProtectedRoute` | Route guard (redirects to login if unauthenticated) |
 | `RoleGate` | Renders children only when membership/roles are satisfied |
