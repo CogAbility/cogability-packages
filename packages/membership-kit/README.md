@@ -35,6 +35,10 @@ function MyChat() {
     sendMessage,       // (text: string) => void
     retry,             // () => void — starts a new chat (rotates chat_id)
     fetchConversationHistory, // () => Promise<ConversationHistoryResponse>
+    // Anonymous turn limit (null for authenticated users or when no limit is configured)
+    turnsPerDay,       // number | null — configured daily limit from Cloudant
+    remaining,         // number | null — turns remaining today (server-authoritative)
+    limitReached,      // boolean — true once the daily limit is hit
   } = useBuddyChat();
 
   return (
@@ -47,6 +51,23 @@ function MyChat() {
   );
 }
 ```
+
+### Anonymous turn limit
+
+When the cogbot has `anonymous_limits.turns_per_day` configured in its Cloudant config document, `useBuddyChat` exposes the limit state for anonymous users:
+
+| Field | Type | Description |
+|---|---|---|
+| `turnsPerDay` | `number \| null` | The configured daily limit. `null` for authenticated users or when no limit is set. |
+| `remaining` | `number \| null` | Turns remaining today. Accurate from the first render — seeded from the server on init. |
+| `limitReached` | `boolean` | `true` once the server returns a 429 `anon_turn_limit` response. Persisted across page refreshes. |
+
+`sendMessage` is a no-op while `limitReached` is `true`. Once the limit is hit, `BuddyChat` replaces the input area with the site-configured `limitReachedHeading` / `limitReachedBody` / `limitReachedCtaLabel` copy from `site.config.js`.
+
+**Counter accuracy:** `remaining` is seeded from the real server-side count on every page load (init endpoint) and persisted to `localStorage` keyed by cogbot ID and UTC date. It resets automatically at UTC midnight, consistent with the server. This means:
+- Refreshing the page shows the correct remaining count, not a reset "10 of 10".
+- Opening an incognito window shows the correct remaining count.
+- Multiple devices on the same IP share the same server-side bucket.
 
 ### `retry()` — New Chat
 
