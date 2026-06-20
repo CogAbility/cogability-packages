@@ -87,11 +87,20 @@ export default function useBuddyChat() {
       setTurnsPerDay(typeof rawLimit === 'number' ? rawLimit : null);
 
       if (anonymousRef.current) {
-        const saved = _loadAnonLimit(cam.cogbotId);
-        if (saved) {
-          setTurnsUsed(saved.used);
-          turnsUsedRef.current = saved.used;
-          setLimitReached(saved.reached);
+        const serverUsed = initData?.anonymous_used;
+        if (typeof serverUsed === 'number') {
+          const reached = typeof rawLimit === 'number' && serverUsed >= rawLimit;
+          setTurnsUsed(serverUsed);
+          turnsUsedRef.current = serverUsed;
+          setLimitReached(reached);
+          _saveAnonLimit(cam.cogbotId, serverUsed, reached);
+        } else {
+          const saved = _loadAnonLimit(cam.cogbotId);
+          if (saved) {
+            setTurnsUsed(saved.used);
+            turnsUsedRef.current = saved.used;
+            setLimitReached(saved.reached);
+          }
         }
       }
 
