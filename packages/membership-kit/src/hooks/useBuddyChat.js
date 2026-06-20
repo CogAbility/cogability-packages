@@ -19,6 +19,27 @@ import { CamClient } from '@cogability/sdk';
  * new chats for the same anonymous uid.
  */
 
+function _utcDateStr() {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+function _anonLimitKey(cogbotId) {
+  return `buddy_anon_limit:${cogbotId}:${_utcDateStr()}`;
+}
+function _loadAnonLimit(cogbotId) {
+  try {
+    const raw = localStorage.getItem(_anonLimitKey(cogbotId));
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (typeof p.used === 'number' && typeof p.reached === 'boolean') return p;
+  } catch {}
+  return null;
+}
+function _saveAnonLimit(cogbotId, used, reached) {
+  try {
+    localStorage.setItem(_anonLimitKey(cogbotId), JSON.stringify({ used, reached }));
+  } catch {}
+}
+
 function isAnonymousLimitError(err) {
   return (
     err?.status === 429 ||
@@ -43,6 +64,7 @@ export default function useBuddyChat() {
   const abortRef = useRef(null);
   const rafIdRef = useRef(null);
   const anonymousRef = useRef(true);
+  const turnsUsedRef = useRef(0);
 
   const initialize = useCallback(async () => {
     try {
@@ -63,6 +85,15 @@ export default function useBuddyChat() {
 
       const rawLimit = initData?.config?.anonymous_limits?.turns_per_day ?? null;
       setTurnsPerDay(typeof rawLimit === 'number' ? rawLimit : null);
+
+      if (anonymousRef.current) {
+        const saved = _loadAnonLimit(cam.cogbotId);
+        if (saved) {
+          setTurnsUsed(saved.used);
+          turnsUsedRef.current = saved.used;
+          setLimitReached(saved.reached);
+        }
+      }
 
       try {
         const greetingData = await cam.fetchGreeting();
@@ -150,12 +181,18 @@ export default function useBuddyChat() {
             setMessages((prev) => [...prev, ...botMessages]);
           }
         }
-        if (anonymousRef.current) setTurnsUsed((n) => n + 1);
+        if (anonymousRef.current) setTurnsUsed((n) => {
+          const next = n + 1;
+          turnsUsedRef.current = next;
+          _saveAnonLimit(cam.cogbotId, next, false);
+          return next;
+        });
       } catch (err) {
         if (err.name === 'AbortError') {
           // intentional abort, no-op
         } else if (isAnonymousLimitError(err) && anonymousRef.current) {
           setLimitReached(true);
+          _saveAnonLimit(cam.cogbotId, turnsUsedRef.current, true);
           setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
         } else {
           console.error('BuddyChat: stream failed', err);
@@ -182,10 +219,16 @@ export default function useBuddyChat() {
           });
         }
         setMessages((prev) => [...prev, ...botMessages]);
-        if (anonymousRef.current) setTurnsUsed((n) => n + 1);
+        if (anonymousRef.current) setTurnsUsed((n) => {
+          const next = n + 1;
+          turnsUsedRef.current = next;
+          _saveAnonLimit(cam.cogbotId, next, false);
+          return next;
+        });
       } catch (err) {
         if (isAnonymousLimitError(err) && anonymousRef.current) {
           setLimitReached(true);
+          _saveAnonLimit(cam.cogbotId, turnsUsedRef.current, true);
           setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
         } else {
           console.error('BuddyChat: message failed', err);
