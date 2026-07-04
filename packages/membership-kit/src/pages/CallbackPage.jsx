@@ -17,7 +17,7 @@ export default function CallbackPage() {
       if (!result.success) return setRedirectTo('/');
       const returnTo = sessionStorage.getItem('auth_return_to') || '/members';
       sessionStorage.removeItem('auth_return_to');
-      setRedirectTo((result.autoProvisioned && !result.hasProfile) ? '/onboarding' : returnTo);
+      setRedirectTo((result.isMember && !result.hasProfile) ? '/onboarding' : returnTo);
     });
   }, [handleCallback]);
 

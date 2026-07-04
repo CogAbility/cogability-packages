@@ -51,7 +51,7 @@ function RootOAuthLanding({ onComplete }) {
       }
       const returnTo = sessionStorage.getItem('auth_return_to') || '/members';
       sessionStorage.removeItem('auth_return_to');
-      const target = (result.autoProvisioned && !result.hasProfile) ? '/onboarding' : returnTo;
+      const target = (result.isMember && !result.hasProfile) ? '/onboarding' : returnTo;
       onComplete(target);
     });
   }, [handleCallback, onComplete]);
