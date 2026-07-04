@@ -21,6 +21,7 @@ import { AuthClient, CmgClient } from '@cogability/sdk';
  *   handleCallback()      - processes the redirect callback, returns { success, autoProvisioned }
  *   redeemCode(code)      - submits an access code; resolves { success, geofenced, unavailable }
  *   logout()              - clears session
+ *   markProfileSaved()    - flips hasProfile to true after the onboarding wizard saves
  *   cmg                   - CmgClient instance (available to child hooks via useAuth())
  */
 const AuthContext = createContext(null);
@@ -90,7 +91,11 @@ export function AuthProvider({ children }) {
         setCodeRequired(false);
         setMembershipStatus(result.isMember ? 'member' : 'not_member');
       }
-      return { autoProvisioned: !!result.autoProvisioned, hasProfile: !!result.hasProfile };
+      return {
+        isMember: !!result.isMember,
+        autoProvisioned: !!result.autoProvisioned,
+        hasProfile: !!result.hasProfile,
+      };
     } catch (err) {
       console.error('AuthProvider: membership validation error', err);
       setIsMember(false);
@@ -100,9 +105,17 @@ export function AuthProvider({ children }) {
       setGeofenceMessage(null);
       setCodeRequired(false);
       setMembershipStatus('error');
-      return { autoProvisioned: false, hasProfile: false };
+      return { isMember: false, autoProvisioned: false, hasProfile: false };
     }
   }, [cmg]);
+
+  // Onboarding writes a profile and needs the context to reflect that
+  // immediately, otherwise the /members onboarding guard (which redirects
+  // whenever hasProfile is false) would bounce the user straight back to
+  // /onboarding after a successful save.
+  const markProfileSaved = useCallback(() => {
+    setHasProfile(true);
+  }, []);
 
   // Bootstrap: rehydrate auth state from sessionStorage on mount.
   // Covers two cases: (1) full-page reload after OAuth callback,
@@ -147,12 +160,12 @@ export function AuthProvider({ children }) {
 
       setUser(oidcUser);
 
-      const { autoProvisioned: wasAutoProvisioned, hasProfile } = await validateMembership(idToken);
-      return { success: true, autoProvisioned: wasAutoProvisioned, hasProfile };
+      const { isMember, autoProvisioned: wasAutoProvisioned, hasProfile } = await validateMembership(idToken);
+      return { success: true, isMember, autoProvisioned: wasAutoProvisioned, hasProfile };
     } catch (err) {
       console.error('AuthProvider: callback error', err);
       setError(err?.message || 'Login failed. Please try again.');
-      return { success: false, autoProvisioned: false, hasProfile: false };
+      return { success: false, isMember: false, autoProvisioned: false, hasProfile: false };
     } finally {
       setIsLoading(false);
     }
@@ -233,6 +246,7 @@ export function AuthProvider({ children }) {
       handleCallback,
       redeemCode,
       logout,
+      markProfileSaved,
       cmg,
     }}>
       {children}

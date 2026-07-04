@@ -11,8 +11,14 @@ export default function MembersPage() {
 
   const firstName = user?.firstName || user?.email?.split('@')[0] || 'Member'
 
+  // hasProfile is the authoritative server signal (from CMG /auth/validate).
+  // We prompt onboarding whenever the member has no profile, unless they
+  // explicitly skipped it this session. The skip flag is intentionally
+  // sessionStorage (not localStorage) so a member whose profile was removed
+  // server-side — e.g. via the CU Admin CMM — is re-prompted on their next
+  // visit rather than being permanently suppressed by a stale device flag.
   useEffect(() => {
-    if (user?.uid && !hasProfile && !localStorage.getItem(`onboarded_${user.uid}`)) {
+    if (user?.uid && !hasProfile && !sessionStorage.getItem(`onboarding_skipped_${user.uid}`)) {
       navigate('/onboarding', { replace: true });
     }
   }, [user?.uid, hasProfile, navigate])

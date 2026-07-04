@@ -236,7 +236,7 @@ function StepActions({ onNext, onBack, onSkip, showBack = true }) {
 
 export default function OnboardingPage() {
   const { onboarding: c } = useSiteConfig();
-  const { user, cmg } = useAuth();
+  const { user, cmg, markProfileSaved } = useAuth();
   const navigate = useNavigate();
 
   const steps = [c.step1Label, c.step2Label, c.step3Label];
@@ -281,9 +281,13 @@ export default function OnboardingPage() {
     setDynamicValue(v);
   }, [schemaLoaded, schema, user?.uid]);
 
-  function markOnboardingComplete() {
+  // Session-scoped guard so a member who skips (or whose save failed) isn't
+  // immediately bounced back to /onboarding by the /members guard within the
+  // same session. Deliberately sessionStorage — a profile removed server-side
+  // (e.g. via the CU Admin CMM) must re-prompt onboarding on the next visit.
+  function markOnboardingSkipped() {
     if (user?.uid) {
-      localStorage.setItem(`onboarded_${user.uid}`, '1');
+      sessionStorage.setItem(`onboarding_skipped_${user.uid}`, '1');
     }
   }
 
@@ -295,11 +299,13 @@ export default function OnboardingPage() {
   }
 
   const goToMembers = useCallback(() => {
+    if (user?.uid) {
+      sessionStorage.setItem(`onboarding_skipped_${user.uid}`, '1');
+    }
     navigate('/members', { replace: true });
-  }, [navigate]);
+  }, [navigate, user?.uid]);
 
   async function handleComplete() {
-    markOnboardingComplete();
     persistProfileLocally();
     setIsSaving(true);
     setSaveError(null);
@@ -308,10 +314,12 @@ export default function OnboardingPage() {
         parent: parentData,
         children: childrenData,
       });
+      markProfileSaved();
     } catch (err) {
       console.error('Onboarding: failed to save profile', err);
       setSaveError(c.profileSaveErrorWarning || 'We had trouble saving your profile, but you can still chat.');
     } finally {
+      markOnboardingSkipped();
       setIsSaving(false);
       navigate('/members', { replace: true });
     }
@@ -321,7 +329,6 @@ export default function OnboardingPage() {
     const { ok, errors: errs } = validateProfile(schema, dynamicValue);
     if (!ok) { setDynamicErrors(errs); return; }
     setDynamicErrors({});
-    markOnboardingComplete();
     if (user?.uid) {
       for (const section of schema.sections || []) {
         const sv = dynamicValue[section.key];
@@ -334,10 +341,12 @@ export default function OnboardingPage() {
     setSaveError(null);
     try {
       await cmg.saveProfile(user?.idToken, dynamicValue);
+      markProfileSaved();
     } catch (err) {
       console.error('Onboarding: failed to save profile', err);
       setSaveError(c.profileSaveErrorWarning || 'We had trouble saving your profile, but you can still chat.');
     } finally {
+      markOnboardingSkipped();
       setIsSaving(false);
       navigate('/members', { replace: true });
     }
