@@ -18,24 +18,34 @@
  *     clientId: process.env.VITE_APPID_CLIENT_ID,
  *     redirectUri: `${window.location.origin}/callback`,
  *     tokenEndpointProxy: `${process.env.VITE_CMG_URL}/auth/token`,
+ *     persistSession: true, // keep the user signed in across tab closes / browser restarts
  *   });
  *   await auth.login('/members');
  *   // ... on /callback page:
  *   const { user, idToken } = await auth.handleCallback();
  */
 
+/** Renew this many seconds before the access token actually expires. */
+const RENEW_SKEW_SECONDS = 60;
+
 export class AuthClient {
   /**
    * @param {import('./types.js').AuthClientOptions} options
+   * @param {boolean} [options.persistSession=false] - When true, the OIDC session
+   *   (id_token, access_token, refresh_token) is stored in localStorage instead of
+   *   sessionStorage, so the user stays signed in across tab closes and browser
+   *   restarts. Trade-off: tokens in localStorage are readable by XSS, so only
+   *   enable this if you trust your app's XSS posture. Defaults to false.
    */
-  constructor({ authorityUrl, clientId, redirectUri, tokenEndpointProxy } = {}) {
+  constructor({ authorityUrl, clientId, redirectUri, tokenEndpointProxy, persistSession = false } = {}) {
     if (!authorityUrl) throw new Error('AuthClient: authorityUrl is required');
     if (!clientId) throw new Error('AuthClient: clientId is required');
     if (!redirectUri) throw new Error('AuthClient: redirectUri is required');
     if (!tokenEndpointProxy) throw new Error('AuthClient: tokenEndpointProxy is required (CMG /auth/token URL)');
 
-    this._config = { authorityUrl, clientId, redirectUri, tokenEndpointProxy };
+    this._config = { authorityUrl, clientId, redirectUri, tokenEndpointProxy, persistSession };
     this._manager = null;
+    this._renewal = null;
   }
 
   /**
@@ -48,10 +58,11 @@ export class AuthClient {
   async _getManager() {
     if (this._manager) return this._manager;
 
-    let UserManager;
+    let UserManager, WebStorageStateStore;
     try {
       const mod = await import('oidc-client-ts');
       UserManager = mod.UserManager;
+      WebStorageStateStore = mod.WebStorageStateStore;
     } catch {
       throw new Error(
         'AuthClient: oidc-client-ts is not installed. ' +
@@ -59,7 +70,18 @@ export class AuthClient {
       );
     }
 
-    const { authorityUrl, clientId, redirectUri, tokenEndpointProxy } = this._config;
+    const { authorityUrl, clientId, redirectUri, tokenEndpointProxy, persistSession } = this._config;
+
+    let userStore;
+    if (persistSession) {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          userStore = new WebStorageStateStore({ store: window.localStorage });
+        }
+      } catch {
+        // localStorage unavailable (e.g. privacy mode); fall back to the default.
+      }
+    }
 
     this._manager = new UserManager({
       authority: authorityUrl,
@@ -67,6 +89,7 @@ export class AuthClient {
       redirect_uri: redirectUri,
       response_type: 'code',
       scope: 'openid profile email',
+      ...(userStore ? { userStore } : {}),
       // Override the metadata so the token exchange goes through the CMG proxy.
       // App ID's token endpoint rejects CORS preflight from browser origins.
       metadata: {
@@ -138,19 +161,54 @@ export class AuthClient {
   /**
    * Return the currently stored OIDC user, or null if not logged in.
    *
+   * If the stored tokens have expired (or are about to) and a refresh_token is
+   * available, they are silently renewed via the refresh_token grant, which
+   * routes through the CMG /auth/token proxy. An expired session that cannot be
+   * renewed resolves to null rather than returning a stale token, so callers get
+   * a clean "logged out" signal instead of a guaranteed 401 from the API.
+   *
    * @returns {Promise<import('oidc-client-ts').User | null>}
    */
   async getUser() {
+    let manager;
     try {
-      const manager = await this._getManager();
-      return await manager.getUser();
+      manager = await this._getManager();
     } catch {
       return null;
     }
+
+    let user;
+    try {
+      user = await manager.getUser();
+    } catch {
+      return null;
+    }
+    if (!user) return null;
+
+    const expiringSoon =
+      user.expired === true ||
+      (typeof user.expires_in === 'number' && user.expires_in <= RENEW_SKEW_SECONDS);
+    if (!expiringSoon) return user;
+
+    if (!user.refresh_token) {
+      return user.expired === true ? null : user;
+    }
+
+    // Collapse concurrent callers onto one renewal: App ID rotates refresh
+    // tokens, so parallel grants would invalidate each other.
+    if (!this._renewal) {
+      this._renewal = manager
+        .signinSilent()
+        .catch(() => null)
+        .finally(() => {
+          this._renewal = null;
+        });
+    }
+    return await this._renewal;
   }
 
   /**
-   * Return the id_token string from the currently stored OIDC user, or null.
+   * Return a currently valid id_token string, renewing it if needed, or null.
    *
    * @returns {Promise<string | null>}
    */
