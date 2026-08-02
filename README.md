@@ -67,22 +67,22 @@ The test suite covers:
 
 (A `playground/` Vite app for hot-reloaded local testing of the kit will be added as a follow-up.)
 
-## Publishing a new version
+## CI/CD
 
-These packages are published manually for now. Release CI (changesets or release-please) is a follow-up.
+Jenkins (`apps/cogability-packages`, a multibranch pipeline driven by [`Jenkinsfile.groovy`](Jenkinsfile.groovy)) builds every branch and PR on push, and publishes from `main`:
 
-### Standard release
+- **Pre-Build** — `npm ci` (see the lockfile note below), then resolves the target version for each package from its two build parameters, `SDK_BUMP_TYPE` and `KIT_BUMP_TYPE` (`none | patch | minor | major`). `none` publishes whatever version is already committed in `package.json` with no bump/commit/tag.
+- **Test** — `npm test` (Vitest, both packages). A branch/PR build stops here.
+- **Publish** *(main only)* — for each package, publishes to npm only if that exact version isn't already there (idempotent — re-running or re-triggering is always safe), commits any version bumps back to `main`, and tags what it actually published (`sdk-vX.Y.Z`, `membership-kit-vX.Y.Z`).
+- **Approval for Production** *(main only, kit published)* — a 30-minute manual gate in the Jenkins UI to also bump `cogbot-membership-website-template`'s `@cogability/membership-kit` dependency and push (triggers its Netlify redeploy). Declining or letting it time out just skips this — the npm publish already happened either way.
 
-1. Bump the version in the package's `package.json` (semver — patch for fixes, minor for additive changes, major for breaking changes).
-2. If the kit changed and the SDK didn't (or vice versa), only bump the changed one. If both changed, bump both and update `membership-kit`'s `dependencies."@cogability/sdk"` range to match the new SDK version.
-3. From the package directory, run `npm publish` (no flags needed — `publishConfig.access: public` is already set in each package).
-4. Verify with `npm view @cogability/<name> version` from outside the workspace.
+**Keep `package-lock.json` in sync.** CI runs `npm ci`, which fails hard (`EUSAGE`) on any drift between it and the `package.json` files — this bit us once already (the lockfile pinned `@cogability/sdk` at `0.2.0` for months across several real bumps because nothing ever ran `npm ci` against it). After bumping a version or changing a workspace package's dependency range, always run `npm install` at the root and commit the resulting lockfile. If `membership-kit`'s `dependencies."@cogability/sdk"` range doesn't cover the SDK's current workspace version, npm will silently install a separate stale copy from the registry instead of linking to local `packages/sdk/` — check `package-lock.json` for a `packages/membership-kit/node_modules/@cogability/sdk` entry (there shouldn't be one) if a change to one package doesn't seem to reach the other in a consumer.
 
-```bash
-cd packages/sdk
-# bump version in package.json
-npm publish
-```
+### Triggering a release
+
+Bump whichever package(s) changed in a PR (semver — patch for fixes, minor for additive changes, major for breaking changes) and update `membership-kit`'s `dependencies."@cogability/sdk"` range if both changed, then merge to `main` — CI publishes it automatically with `SDK_BUMP_TYPE=none` / `KIT_BUMP_TYPE=none` (the default) since the version is already committed. Alternatively, trigger `apps/cogability-packages/main` in Jenkins directly with `SDK_BUMP_TYPE`/`KIT_BUMP_TYPE` set to have it bump, commit, tag, and publish for you.
+
+Verify with `npm view @cogability/<name> version` from outside the workspace.
 
 ### CRITICAL: never `npm unpublish`
 
