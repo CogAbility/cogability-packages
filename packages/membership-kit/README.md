@@ -170,6 +170,30 @@ import { AuthProvider, useAuth } from '@cogability/membership-kit';
 const { user, idToken, isLoading, login, logout } = useAuth();
 ```
 
+### AuthProvider props
+
+| Prop | Default | Purpose |
+|---|---|---|
+| `persistSession` | `true` | Keeps the login in `localStorage` so it survives a tab close. Pass `false` for a session that ends with the tab. |
+
+Persisting the session matters more than it sounds: App ID issues no refresh
+tokens to SPA clients, so a tab-scoped login means members re-run the emailed
+multi-factor code on essentially every visit. With the default, a returning
+member normally lands signed in and is prompted again only on a new device or
+after the tenant's SSO inactivity window lapses.
+
+```jsx
+// Opt out — session ends when the tab closes
+<AuthProvider persistSession={false}>
+  <YourApp />
+</AuthProvider>
+```
+
+The anonymous chat session is stored the same way. It uses the SDK's
+`PersistentBrowserSessionStore`, so a visitor keeps one `uid` across tab closes
+rather than being issued a new one — which previously reset their anonymous
+turn allowance. Existing visitors are migrated automatically on first read.
+
 ---
 
 ## Access-code membership gate

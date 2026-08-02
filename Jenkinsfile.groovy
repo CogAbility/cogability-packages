@@ -269,7 +269,13 @@ pipeline {
 
                             npm pkg set dependencies.@cogability/membership-kit="^${env.KIT_VERSION}"
 
-                            git add package.json
+                            # Refresh the lockfile in the same commit. Bumping package.json
+                            # alone leaves the two out of sync, and the template's build
+                            # installs from the lockfile — so the deploy would either keep
+                            # shipping the old kit or fail outright on `npm ci`.
+                            npm install --package-lock-only
+
+                            git add package.json package-lock.json
                             git diff --cached --quiet || git commit -m "Update @cogability/membership-kit to ${env.KIT_VERSION}"
                             git push https://tim.millett%40cogability.com:\${GIT_TOKEN}@github.com/CogAbility/cogbot-membership-website-template.git main
 

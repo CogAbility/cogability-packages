@@ -3,7 +3,7 @@
  * All real logic lives in CamClient.
  */
 
-import { CamClient, BrowserSessionStore } from '@cogability/sdk';
+import { CamClient, PersistentBrowserSessionStore } from '@cogability/sdk';
 
 function getHost() {
   if (import.meta.env.DEV) return '/cogbot-api';
@@ -13,7 +13,9 @@ function getHost() {
 const cam = new CamClient({
   host: getHost(),
   cogbotId: import.meta.env.VITE_COGBOT_ID || 'mc_0091:full',
-  sessionStore: new BrowserSessionStore(),
+  // localStorage-backed: a tab-scoped store hands anonymous visitors a new uid
+  // whenever they close the tab, which resets their turn allowance.
+  sessionStore: new PersistentBrowserSessionStore(),
 });
 
 export async function setAnonymousTokens() {

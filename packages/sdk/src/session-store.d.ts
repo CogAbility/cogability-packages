@@ -13,9 +13,20 @@ export class MemorySessionStore implements SessionStore {
 }
 
 /**
- * Browser sessionStorage adapter — use in browser/SPA contexts.
+ * Browser sessionStorage adapter — use in browser/SPA contexts. Tab-scoped.
  */
 export class BrowserSessionStore implements SessionStore {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+  remove(key: string): void;
+}
+
+/**
+ * Browser localStorage adapter — survives tab closes and browser restarts, and
+ * migrates existing values out of sessionStorage on read. Prefer this for
+ * CamClient on any site with an anonymous turn limit.
+ */
+export class PersistentBrowserSessionStore implements SessionStore {
   get(key: string): string | null;
   set(key: string, value: string): void;
   remove(key: string): void;

@@ -375,10 +375,34 @@ No session or `chat_id` is required for this endpoint; the schema is per-cogbot,
 
 | Class | When to use |
 |---|---|
-| `BrowserSessionStore` | Browser SPAs — wraps `window.sessionStorage` |
+| `PersistentBrowserSessionStore` | Browser SPAs with an anonymous turn limit — wraps `window.localStorage` |
+| `BrowserSessionStore` | Browser SPAs where the session should end with the tab — wraps `window.sessionStorage` |
 | `MemorySessionStore` | Node.js, SSR, tests — in-process Map |
 
 Custom stores implement three methods: `get(key)`, `set(key, value)`, `remove(key)`.
+
+### Choosing between the two browser stores
+
+`BrowserSessionStore` is scoped to a single tab, so closing the tab hands the
+visitor a brand new `uid` — and with it, a fresh turn allowance. If your site
+meters anonymous chat, prefer `PersistentBrowserSessionStore`, which keeps the
+`uid` in `localStorage` so it survives tab closes and browser restarts:
+
+```js
+import { CamClient, PersistentBrowserSessionStore } from '@cogability/sdk';
+
+const cam = new CamClient({
+  host: 'https://cam.example.com',
+  cogbotId: 'mc_0091:full',
+  sessionStore: new PersistentBrowserSessionStore(),
+});
+```
+
+Switching an existing site over is safe: reads migrate any value already in
+`sessionStorage` into `localStorage`, so visitors mid-session are not reset. The
+store also degrades rather than throwing when storage is unreachable — during
+server-side rendering, in Safari private mode, or when a write hits a quota
+error — falling back to tab-scoped storage so the visit still works.
 
 ## Advanced: raw SSE parsing
 

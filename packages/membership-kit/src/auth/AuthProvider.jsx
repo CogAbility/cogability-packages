@@ -23,13 +23,17 @@ import { AuthClient, CmgClient } from '@cogability/sdk';
  *   logout()              - clears session
  *   markProfileSaved()    - flips hasProfile to true after the onboarding wizard saves
  *   cmg                   - CmgClient instance (available to child hooks via useAuth())
+ *
+ * Props:
+ *   persistSession - defaults to true, keeping the login in localStorage so it
+ *                    survives a tab close. Pass false for a tab-scoped session.
  */
 const AuthContext = createContext(null);
 
 const CMG_URL = import.meta.env.VITE_CMG_URL || 'http://localhost:3010';
 const SITE_NAMESPACE = import.meta.env.VITE_SITE_NAMESPACE || 'bab';
 
-export function AuthProvider({ children }) {
+export function AuthProvider({ children, persistSession = true }) {
   const [user, setUser] = useState(null);
   const [isMember, setIsMember] = useState(false);
   const [autoProvisioned, setAutoProvisioned] = useState(false);
@@ -57,8 +61,11 @@ export function AuthProvider({ children }) {
       clientId: import.meta.env.VITE_APPID_CLIENT_ID,
       redirectUri,
       tokenEndpointProxy: `${CMG_URL}/auth/token`,
+      // On by default: App ID issues no refresh tokens to SPA clients, so a
+      // tab-scoped session means re-running email MFA on every visit.
+      persistSession,
     });
-  }, []);
+  }, [persistSession]);
 
   // Anonymous geofence probe — runs once on mount before any login flow.
   // Lets the landing page gate the public chat widget for non-allowed regions.
