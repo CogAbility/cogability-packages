@@ -17,6 +17,8 @@ export class CmgClient {
    * Redeem an access code to provision membership for a gated namespace.
    * Throws on 503 (service unavailable); returns a result object on 200/400 so the
    * caller can branch on isMember / error / geofenced without try/catch for normal failures.
+   * On `error: 'wrong_product'`, `message` carries a human-readable explanation that is
+   * safe to show verbatim; every other error omits it by design.
    */
   redeemCode(options: { idToken: string; namespace?: string; code: string }): Promise<RedeemCodeResult>;
 

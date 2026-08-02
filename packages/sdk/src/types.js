@@ -60,7 +60,13 @@
  * @property {boolean} geofenced - True when CMG says this IP is outside the allowed region.
  * @property {string|null} geofenceMessage - Human-readable message when geofenced.
  * @property {boolean} codeRequired - True when the code was rejected and a retry is possible.
- * @property {string|null} error - 'invalid_code' on a bad/expired code, null on success.
+ * @property {string|null} error - 'invalid_code' on a bad/expired code, 'wrong_product' when
+ *   the code is genuine but belongs to a different namespace's product (not consumed — the
+ *   member can retry it on the site it was issued for), null on success.
+ * @property {string|null} message - Human-readable explanation. Only ever set alongside
+ *   `error: 'wrong_product'`; every other failure omits it so the API's anti-enumeration
+ *   guarantee (one generic message for "wrong code, expired, disabled, already used, etc.")
+ *   isn't undermined by the client layer. Safe to show verbatim when present.
  */
 
 /**

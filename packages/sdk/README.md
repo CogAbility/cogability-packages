@@ -119,14 +119,16 @@ On success the server auto-provisions the user and returns resolved roles (same 
 | `geofenced` | boolean | IP is outside the allowed region. |
 | `geofenceMessage` | string \| null | Human-readable geofence message. |
 | `codeRequired` | boolean | `true` when the code was rejected and a retry is still possible. |
-| `error` | string \| null | `'invalid_code'` on a bad/expired code; `null` on success. |
+| `error` | string \| null | `'invalid_code'` on a bad/expired code, `'wrong_product'` when the code is genuine but belongs to a different namespace's product (not consumed — retryable on the site it was issued for), `null` on success. |
+| `message` | string \| null | Human-readable explanation. Only ever set alongside `error: 'wrong_product'` — every other failure omits it on purpose so the API's one generic "wrong code, expired, disabled, already used, etc." message can't be picked apart from the client side. Safe to show verbatim when present. |
 
 **Error behavior:**
 
 | HTTP status | Behavior |
 |---|---|
 | 200 (success) | Returns result with `isMember: true`, `roles` populated. |
-| 400 (invalid code) | Returns result with `isMember: false`, `error: 'invalid_code'`, `codeRequired: true`. |
+| 400, wrong product | Returns result with `isMember: false`, `error: 'wrong_product'`, `codeRequired: true`, and a `message` worth showing. The code was **not** consumed. |
+| 400, any other reason | Returns result with `isMember: false`, `error: 'invalid_code'`, `codeRequired: true`, `message: null`. |
 | 503 (service unavailable) | **Throws** an `Error`. |
 
 ```js
@@ -135,6 +137,8 @@ const result = await cmg.redeemCode({ idToken, code: 'ABC-123' });
 
 if (result.isMember) {
   console.log('Access granted. Roles:', result.roles);
+} else if (result.error === 'wrong_product') {
+  console.warn(result.message); // e.g. "That access code is for a different CogBot..."
 } else if (result.error === 'invalid_code') {
   console.warn('Invalid or expired code — prompt the user to retry');
 } else if (result.geofenced) {

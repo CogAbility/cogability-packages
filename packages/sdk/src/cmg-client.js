@@ -100,6 +100,11 @@ export class CmgClient {
       geofenceMessage: data.geofenceMessage ?? null,
       codeRequired: data.codeRequired === true,
       error: data.error ?? null,
+      // Only CMG's 'wrong_product' failure sets this — the code exists but
+      // belongs to another cogbot's product, so unlike every other failure
+      // (deliberately generic, to resist code enumeration) this one is safe
+      // and useful to show the member verbatim.
+      message: data.message ?? null,
     };
   }
 
