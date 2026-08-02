@@ -1,6 +1,6 @@
 {
   "name": "@cogability/membership-kit",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "exports": {
     ".": "./src/index.js"
@@ -18,7 +18,7 @@
     "react-router-dom": "^7.0.0"
   },
   "dependencies": {
-    "@cogability/sdk": "^0.5.0",
+    "@cogability/sdk": "^0.6.1",
     "oidc-client-ts": "^3.5.0"
   }
 }

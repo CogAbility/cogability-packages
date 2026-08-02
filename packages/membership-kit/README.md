@@ -185,7 +185,7 @@ After login, if `validateMembership` returns `codeRequired: true`, `AuthProvider
 | Context value | Type | Description |
 |---|---|---|
 | `codeRequired` | boolean | `true` when the namespace requires a code and the user is not yet a member. |
-| `codeError` | string \| null | Human-readable error message after a failed `redeemCode` attempt; `null` otherwise. Set to a generic "invalid or expired" message on HTTP 400, or a "service temporarily unavailable" message on a 503/network failure. |
+| `codeError` | string \| null | Human-readable error message after a failed `redeemCode` attempt; `null` otherwise. A generic "invalid or expired" message on most HTTP 400s, CMG's specific message verbatim when the code belongs to a different cogbot (`wrong_product`), or a "service temporarily unavailable" message on a 503/network failure. |
 | `codeSubmitting` | boolean | `true` while a `redeemCode` call is in-flight. Useful for disabling the submit button and showing a spinner. |
 | `membershipStatus` | string | `'code_required'` when awaiting a code, plus the standard values `'none' \| 'checking' \| 'member' \| 'not_member' \| 'error'`. |
 

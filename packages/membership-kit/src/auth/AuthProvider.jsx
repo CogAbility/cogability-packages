@@ -194,8 +194,15 @@ export function AuthProvider({ children }) {
         setMembershipStatus('not_member');
         return { success: false, geofenced: true, unavailable: false };
       }
-      // invalid_code or other 400 — keep code_required state, surface generic error
-      setCodeError('The code you entered is invalid or has expired. Please try again.');
+      // invalid_code or other 400 — keep code_required state. `wrong_product` is the one
+      // failure CMG intentionally makes non-generic (the code is valid but belongs to a
+      // different cogbot), so surface its message verbatim; everything else stays generic
+      // to resist code enumeration.
+      setCodeError(
+        result.error === 'wrong_product' && result.message
+          ? result.message
+          : 'The code you entered is invalid or has expired. Please try again.'
+      );
       return { success: false, geofenced: false, unavailable: false };
     } catch (err) {
       // 503 or network failure
