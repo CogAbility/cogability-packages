@@ -28,6 +28,43 @@
 /** Renew this many seconds before the access token actually expires. */
 const RENEW_SKEW_SECONDS = 60;
 
+/**
+ * Read a JWT's payload without verifying it.
+ *
+ * Verification is the API's job, not the browser's — every token here has
+ * already been issued by App ID over TLS and is checked again on the way in
+ * by CMG, CAM, and be-pfc. This is only to read claims the app needs to
+ * render, so it must never be used to make a trust decision.
+ */
+function decodeJwtPayload(token) {
+  const parts = String(token).split('.');
+  if (parts.length !== 3) throw new Error('AuthClient: token is not a well-formed JWT');
+
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(base64);
+    // atob yields Latin-1; decode as UTF-8 so non-ASCII names survive.
+    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new Error('AuthClient: token payload could not be decoded');
+  }
+}
+
+/** Flatten an oidc-client-ts user into the shape SDK consumers expect. */
+function toAuthUser(oidcUser) {
+  const p = oidcUser.profile;
+  return {
+    uid: p.sub,
+    email: p.email ?? '',
+    firstName: p.given_name ?? p.name?.split(' ')[0] ?? '',
+    lastName: p.family_name ?? p.name?.split(' ').slice(1).join(' ') ?? '',
+    idToken: oidcUser.id_token,
+    accessToken: oidcUser.access_token,
+    raw: p,
+  };
+}
+
 export class AuthClient {
   /**
    * @param {import('./types.js').AuthClientOptions} options
@@ -125,21 +162,115 @@ export class AuthClient {
     const manager = await this._getManager();
     const oidcUser = await manager.signinRedirectCallback();
 
-    const p = oidcUser.profile;
-    const user = {
-      uid: p.sub,
-      email: p.email ?? '',
-      firstName: p.given_name ?? p.name?.split(' ')[0] ?? '',
-      lastName: p.family_name ?? p.name?.split(' ').slice(1).join(' ') ?? '',
+    return {
+      user: toAuthUser(oidcUser),
       idToken: oidcUser.id_token,
       accessToken: oidcUser.access_token,
-      raw: p,
     };
+  }
+
+  /**
+   * Adopt App ID tokens that were obtained outside this client, and store them
+   * as the current OIDC session.
+   *
+   * This exists for the Microsoft sign-in broker (`idbroker`), which runs the
+   * Microsoft OIDC flow server-side and exchanges the result for real App ID
+   * tokens via a jwt-bearer assertion. The browser never runs that flow, so
+   * there is no authorization code for `handleCallback()` to process — but the
+   * resulting tokens are ordinary App ID tokens from the same issuer, and the
+   * rest of the app (CamClient, CmgClient, `getUser()`, route guards) should
+   * not have to care which provider produced them.
+   *
+   * The tokens are sanity-checked before being stored: correct issuer, a
+   * subject, and not already expired. That is misconfiguration protection, not
+   * a security boundary — anything able to call this method already runs in
+   * your page. The real boundary is that the broker only releases tokens
+   * against a single-use code over HTTPS.
+   *
+   * Two things worth knowing:
+   *
+   * - `aud` is deliberately not checked against `clientId`. Broker-issued
+   *   tokens carry the broker's own confidential client id, not this SPA's.
+   * - No `userLoaded` event is raised, because oidc-client-ts does not expose
+   *   a way to raise one. Use the returned value as the signal, as you would
+   *   with `handleCallback()`.
+   *
+   * Passing a `refresh_token` is supported but usually wrong: App ID binds a
+   * refresh token to the client that obtained it, and the CMG `/auth/token`
+   * proxy authenticates as a public client, so a refresh token issued to a
+   * confidential client cannot be renewed through it. `idbroker` does not
+   * return one for exactly this reason.
+   *
+   * @param {object} tokens - Token set from the broker's redemption endpoint.
+   * @param {string} tokens.id_token
+   * @param {string} tokens.access_token
+   * @param {string} [tokens.token_type='Bearer']
+   * @param {number} [tokens.expires_in]
+   * @param {string} [tokens.scope]
+   * @param {string} [tokens.refresh_token]
+   * @returns {Promise<AuthCallbackResult>} Same shape as `handleCallback()`.
+   */
+  async signInWithExternalTokens({
+    id_token,
+    access_token,
+    token_type = 'Bearer',
+    expires_in,
+    scope,
+    refresh_token,
+  } = {}) {
+    if (!id_token) throw new Error('AuthClient: signInWithExternalTokens requires an id_token');
+    if (!access_token) throw new Error('AuthClient: signInWithExternalTokens requires an access_token');
+
+    const profile = decodeJwtPayload(id_token);
+
+    if (!profile.sub) {
+      throw new Error('AuthClient: the supplied id_token has no sub claim');
+    }
+    if (profile.iss !== this._config.authorityUrl) {
+      throw new Error(
+        `AuthClient: the supplied id_token was issued by ${profile.iss}, ` +
+        `but this client is configured for ${this._config.authorityUrl}`
+      );
+    }
+    if (typeof profile.exp === 'number' && profile.exp * 1000 <= Date.now()) {
+      throw new Error('AuthClient: the supplied id_token has already expired');
+    }
+
+    let User;
+    try {
+      ({ User } = await import('oidc-client-ts'));
+    } catch {
+      throw new Error(
+        'AuthClient: oidc-client-ts is not installed. ' +
+        'Add it as a dependency: npm install oidc-client-ts'
+      );
+    }
+
+    const manager = await this._getManager();
+
+    // Prefer the issuer's own exp over expires_in, which is relative to a
+    // response we may have received some time ago.
+    const expiresAt = typeof expires_in === 'number'
+      ? Math.floor(Date.now() / 1000) + expires_in
+      : profile.exp;
+
+    const oidcUser = new User({
+      id_token,
+      access_token,
+      refresh_token,
+      token_type,
+      scope,
+      profile,
+      expires_at: expiresAt,
+      session_state: null,
+    });
+
+    await manager.storeUser(oidcUser);
 
     return {
-      user,
-      idToken: oidcUser.id_token,
-      accessToken: oidcUser.access_token,
+      user: toAuthUser(oidcUser),
+      idToken: id_token,
+      accessToken: access_token,
     };
   }
 

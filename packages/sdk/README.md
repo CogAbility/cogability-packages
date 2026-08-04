@@ -170,6 +170,39 @@ console.log('Logged in as', user.email);
 await auth.logout();
 ```
 
+### Signing in with tokens from an external broker
+
+`signInWithExternalTokens()` adopts App ID tokens that were obtained somewhere
+other than this client and stores them as the current session. It exists for
+the Microsoft sign-in broker, which runs the Microsoft OIDC flow server-side
+and exchanges the result for real App ID tokens — the browser never sees an
+authorization code, so there is nothing for `handleCallback()` to process.
+
+```js
+// The broker redirected back with ?ms_auth_code=... — trade it for tokens.
+const res = await fetch('https://idbroker.example.net/auth/microsoft/redeem', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ code }),
+});
+const tokens = await res.json();
+
+const { user } = await auth.signInWithExternalTokens(tokens);
+```
+
+Afterwards the session behaves like any other: `getUser()`, `getIdToken()`,
+`logout()`, and the API clients all work unchanged.
+
+Two caveats:
+
+- No `userLoaded` event is raised, because oidc-client-ts does not expose a
+  way to raise one. Use the returned value, as you would with
+  `handleCallback()`.
+- Brokered sessions do not carry a refresh token, so they last one
+  access-token lifetime rather than being silently renewed. App ID binds a
+  refresh token to the client that obtained it, and a broker is a confidential
+  client, so the CMG token proxy could not renew one anyway.
+
 ---
 
 ## Node.js agent — programmatic CogBot access

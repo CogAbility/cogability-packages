@@ -17,6 +17,24 @@ export interface AuthCallbackResult {
 }
 
 /**
+ * A token set issued by App ID but obtained outside this client, such as the
+ * response from the Microsoft broker's redemption endpoint.
+ */
+export interface ExternalTokenSet {
+  id_token: string;
+  access_token: string;
+  token_type?: string;
+  expires_in?: number;
+  scope?: string;
+  /**
+   * Rarely correct. App ID binds a refresh token to the client that obtained
+   * it, so one issued to a confidential client cannot be renewed through the
+   * CMG token proxy.
+   */
+  refresh_token?: string;
+}
+
+/**
  * OIDC authentication client for App ID. Browser-only.
  * Node.js agents should skip OIDC and pass tokens directly to
  * CamClient.initAuthenticated() and CmgClient.validateMembership().
@@ -29,6 +47,12 @@ export class AuthClient {
 
   /** Process the OIDC redirect callback. Call this on the /callback page. */
   handleCallback(): Promise<AuthCallbackResult>;
+
+  /**
+   * Adopt App ID tokens obtained outside this client (e.g. from the Microsoft
+   * sign-in broker) and store them as the current OIDC session.
+   */
+  signInWithExternalTokens(tokens: ExternalTokenSet): Promise<AuthCallbackResult>;
 
   /** Clear the OIDC session state (local only; does not perform server-side logout). */
   logout(): Promise<void>;
