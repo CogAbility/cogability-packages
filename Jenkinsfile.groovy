@@ -225,7 +225,17 @@ pipeline {
                                 ]
                             )
 
-                            if (userInput.UPDATE_TEMPLATE == 'Yes') {
+                            // With exactly one parameter, `input` returns that
+                            // parameter's raw value (a String), not a map keyed by
+                            // name. Reading userInput.UPDATE_TEMPLATE on a String
+                            // throws MissingPropertyException, which the catch below
+                            // swallowed -- so an approval that was actually granted
+                            // logged "Approval timeout or cancelled" and skipped the
+                            // template update, indistinguishable from being too slow.
+                            // Same defect was found and fixed in idbroker PR #6.
+                            def templateChoice = (userInput instanceof Map) ? userInput.UPDATE_TEMPLATE : userInput
+
+                            if (templateChoice == 'Yes') {
                                 env.DO_UPDATE_TEMPLATE = 'true'
                                 echo 'Template update approved'
                             } else {
@@ -234,7 +244,9 @@ pipeline {
                             }
                         }
                     } catch (err) {
-                        echo 'Approval timeout or cancelled. Skipping template update.'
+                        // Include the exception so a real bug here is distinguishable
+                        // from a genuine timeout instead of looking identical to one.
+                        echo "Approval step did not complete with an explicit choice (timeout, cancellation, or error: ${err}). Skipping template update."
                         env.DO_UPDATE_TEMPLATE = 'false'
                     }
                 }

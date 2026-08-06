@@ -132,7 +132,10 @@ export class AuthClient {
       scope: 'openid profile email',
       ...(userStore ? { userStore } : {}),
       // Override the metadata so the token exchange goes through the CMG proxy.
-      // App ID's token endpoint rejects CORS preflight from browser origins.
+      // App ID's token endpoint rejects CORS preflight from browser origins, and
+      // site clients are confidential, so the exchange needs a client secret that
+      // CMG attaches server-side. Pointing token_endpoint back at App ID fails on
+      // both counts.
       metadata: {
         issuer: authorityUrl,
         authorization_endpoint: `${authorityUrl}/authorization`,
