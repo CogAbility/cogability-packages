@@ -3,7 +3,7 @@
  * Re-exports all public classes, functions, and types.
  */
 
-export { CamClient, CamLimitError } from './cam-client.js';
+export { CamClient, CamLimitError, CamSessionExpiredError } from './cam-client.js';
 export { CmgClient } from './cmg-client.js';
 export { AuthClient, createAuthClientFromEnv } from './auth-client.js';
 export type { AuthUser, AuthCallbackResult } from './auth-client.js';

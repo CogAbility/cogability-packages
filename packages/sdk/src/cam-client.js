@@ -45,6 +45,41 @@ export class CamLimitError extends Error {
 }
 
 /**
+ * Thrown when the CAM session has gone and could not be re-established.
+ *
+ * Distinct from a bare 401 because it means the recovery in `_retryOn401` was
+ * attempted and failed: for an authenticated session that usually means the
+ * App ID id_token has also expired, so the only way forward is an interactive
+ * login. Apps should treat this as "prompt the user to sign in again" rather
+ * than "something went wrong".
+ */
+export class CamSessionExpiredError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ cause?: unknown }} [options]
+   */
+  constructor(message, { cause } = {}) {
+    super(message);
+    this.name = 'CamSessionExpiredError';
+    this.cause = cause;
+  }
+}
+
+/**
+ * True when an error represents an HTTP 401 from CAM.
+ *
+ * Two shapes reach here: CamLimitError carries a numeric `status`, while the
+ * older call sites throw a plain Error whose message ends in "(401)".
+ *
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function _is401(err) {
+  if (err?.status === 401) return true;
+  return String(err?.message ?? '').includes('(401)');
+}
+
+/**
  * Parse HTTP error response and extract error code from JSON body.
  * Handles both nested (body.detail.code) and top-level (body.code) code locations.
  *
@@ -92,6 +127,7 @@ export class CamClient {
     country = 'US',
     sessionStore,
     getHostUrl = defaultGetHostUrl,
+    getIdToken,
   } = {}) {
     if (!cogbotId) throw new Error('CamClient: cogbotId is required');
     this.host = host;
@@ -100,6 +136,17 @@ export class CamClient {
     this.country = country;
     this.store = sessionStore ?? new MemorySessionStore();
     this.getHostUrl = getHostUrl;
+    this.getIdToken = getIdToken;
+
+    // How the current session was established, so a 401 can be recovered from.
+    // Stays null until initAnonymous/initAuthenticated succeeds; while null a
+    // 401 is passed through untouched, because there is no session to restore.
+    this._authMode = null;
+    // Fallback for re-authentication when no getIdToken was supplied. Only good
+    // for the lifetime of the token itself, which is why getIdToken is preferred.
+    this._idToken = null;
+    // Shared so that N concurrent 401s cause one re-establish, not N.
+    this._reestablishing = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -194,7 +241,10 @@ export class CamClient {
    * @returns {Promise<import('./types.js').CogbotSession>}
    */
   async initAnonymous() {
-    return this._setTokens({ idToken: 'anonymous' });
+    const session = await this._setTokens({ idToken: 'anonymous' });
+    this._authMode = 'anonymous';
+    this._idToken = null;
+    return session;
   }
 
   /**
@@ -205,7 +255,90 @@ export class CamClient {
    * @returns {Promise<import('./types.js').CogbotSession>}
    */
   async initAuthenticated(idToken) {
-    return this._setTokens({ idToken });
+    const session = await this._setTokens({ idToken });
+    this._authMode = 'authenticated';
+    this._idToken = idToken;
+    return session;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session recovery
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Re-run whichever init established the current session.
+   *
+   * CAM sessions are server-side and expire independently of anything the
+   * browser holds, so a client that has been idle can hold a perfectly good
+   * id_token and still be refused. Anonymous sessions restore silently.
+   * Authenticated ones need a live id_token: `getIdToken` is consulted first so
+   * a renewed token is picked up, and the token passed to initAuthenticated is
+   * only a fallback — it may itself have expired by now.
+   *
+   * @returns {Promise<void>}
+   * @throws {CamSessionExpiredError} When no session can be restored without a login.
+   */
+  async _reestablishSession() {
+    if (this._reestablishing) return this._reestablishing;
+
+    this._reestablishing = (async () => {
+      if (this._authMode === 'anonymous') {
+        await this._setTokens({ idToken: 'anonymous' });
+        return;
+      }
+
+      let idToken = null;
+      try {
+        idToken = (await this.getIdToken?.()) ?? this._idToken;
+      } catch (err) {
+        throw new CamSessionExpiredError(
+          'CamClient: could not obtain an id_token to restore the session',
+          { cause: err }
+        );
+      }
+
+      if (!idToken) {
+        throw new CamSessionExpiredError(
+          'CamClient: session expired and no id_token is available — sign in again'
+        );
+      }
+
+      try {
+        await this._setTokens({ idToken });
+        this._idToken = idToken;
+      } catch (err) {
+        // Almost always the id_token expiring alongside the session.
+        throw new CamSessionExpiredError(
+          'CamClient: session expired and the id_token was rejected — sign in again',
+          { cause: err }
+        );
+      }
+    })().finally(() => {
+      this._reestablishing = null;
+    });
+
+    return this._reestablishing;
+  }
+
+  /**
+   * Run a request, and on a 401 restore the session and run it exactly once more.
+   *
+   * Retried at most once: if the second attempt is also refused, the error is
+   * whatever CAM said, not a loop. Requests made before any init are passed
+   * through unchanged, since there is no session to restore.
+   *
+   * @template T
+   * @param {() => Promise<T>} run
+   * @returns {Promise<T>}
+   */
+  async _retryOn401(run) {
+    try {
+      return await run();
+    } catch (err) {
+      if (!_is401(err) || this._authMode === null) throw err;
+      await this._reestablishSession();
+      return run();
+    }
   }
 
   async _setTokens(tokens) {
@@ -234,14 +367,16 @@ export class CamClient {
    * @returns {Promise<Object>} Raw CAM config response.
    */
   async initCogbot() {
-    const url = this._sessionUrl(
-      `/api/init/cogbots/${encodeURIComponent(this.cogbotId)}?language=${encodeURIComponent(this.language)}`
-    );
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) throw new Error(`CamClient: initCogbot failed (${res.status})`);
-    const data = await res.json();
-    this._handleSid(data);
-    return data;
+    return this._retryOn401(async () => {
+      const url = this._sessionUrl(
+        `/api/init/cogbots/${encodeURIComponent(this.cogbotId)}?language=${encodeURIComponent(this.language)}`
+      );
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`CamClient: initCogbot failed (${res.status})`);
+      const data = await res.json();
+      this._handleSid(data);
+      return data;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -255,6 +390,10 @@ export class CamClient {
    * @returns {Promise<import('./types.js').MessageResponse>}
    */
   async fetchGreeting({ hostUrl } = {}) {
+    return this._retryOn401(() => this._fetchGreetingOnce({ hostUrl }));
+  }
+
+  async _fetchGreetingOnce({ hostUrl } = {}) {
     const uid = this._getUid();
     const params = new URLSearchParams({
       host_url: hostUrl ?? this.getHostUrl(),
@@ -284,24 +423,26 @@ export class CamClient {
    * @throws {CamLimitError} On non-OK HTTP response.
    */
   async sendMessage(text, { anonymous = true, hostUrl } = {}) {
-    const uid = this._getUid();
-    const url = this._sessionUrl(
-      `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/message`
-    );
+    return this._retryOn401(async () => {
+      const uid = this._getUid();
+      const url = this._sessionUrl(
+        `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/message`
+      );
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer anonymous',
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(this._buildMessageBody(text, uid, { anonymous, hostUrl })),
-      credentials: 'include',
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer anonymous',
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(this._buildMessageBody(text, uid, { anonymous, hostUrl })),
+        credentials: 'include',
+      });
+
+      if (!res.ok) throw await _errorFromResponse(res, 'CamClient: sendMessage');
+      return res.json();
     });
-
-    if (!res.ok) throw await _errorFromResponse(res, 'CamClient: sendMessage');
-    return res.json();
   }
 
   /**
@@ -318,6 +459,17 @@ export class CamClient {
    * @throws {CamLimitError} On non-OK HTTP response.
    */
   async *streamMessage(text, { anonymous = true, hostUrl, signal } = {}) {
+    // Only opening the stream is retried. Once events have been yielded a
+    // replay would emit the earlier ones twice, so a mid-stream failure is
+    // surfaced rather than recovered.
+    const res = await this._retryOn401(() =>
+      this._openMessageStream(text, { anonymous, hostUrl, signal })
+    );
+
+    yield* parseSseStream(res, { signal });
+  }
+
+  async _openMessageStream(text, { anonymous = true, hostUrl, signal } = {}) {
     const uid = this._getUid();
     const url = this._sessionUrl(
       `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/message/stream`
@@ -336,8 +488,7 @@ export class CamClient {
     });
 
     if (!res.ok) throw await _errorFromResponse(res, 'CamClient: streamMessage');
-
-    yield* parseSseStream(res, { signal });
+    return res;
   }
 
   _buildMessageBody(text, uid, { anonymous = true, hostUrl } = {}) {
@@ -374,6 +525,10 @@ export class CamClient {
    * @returns {Promise<import('./types.js').ConversationHistoryResponse>}
    */
   async fetchConversationHistory(chatId) {
+    return this._retryOn401(() => this._fetchConversationHistoryOnce(chatId));
+  }
+
+  async _fetchConversationHistoryOnce(chatId) {
     const uid = this._getUid();
     const id = chatId ?? this._getChatId();
     const params = new URLSearchParams({ chat_id: id });
@@ -404,13 +559,15 @@ export class CamClient {
    * @returns {Promise<import('./types.js').ConversationListResponse>}
    */
   async listConversations() {
-    const uid = this._getUid();
-    const url = this._sessionUrl(
-      `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/conversations`
-    );
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) throw new Error(`CamClient: listConversations failed (${res.status})`);
-    return res.json();
+    return this._retryOn401(async () => {
+      const uid = this._getUid();
+      const url = this._sessionUrl(
+        `/api/cogbots/${encodeURIComponent(this.cogbotId)}/id/${uid}/conversations`
+      );
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`CamClient: listConversations failed (${res.status})`);
+      return res.json();
+    });
   }
 
   // ---------------------------------------------------------------------------

@@ -16,6 +16,16 @@ const cam = new CamClient({
   // localStorage-backed: a tab-scoped store hands anonymous visitors a new uid
   // whenever they close the tab, which resets their turn allowance.
   sessionStore: new PersistentBrowserSessionStore(),
+  // Read at recovery time, not at construction, so restoring an expired CAM
+  // session picks up whatever AuthProvider last wrote rather than replaying a
+  // token that has since lapsed.
+  getIdToken: () => {
+    try {
+      return sessionStorage.getItem('cam_token');
+    } catch {
+      return null;
+    }
+  },
 });
 
 export async function setAnonymousTokens() {

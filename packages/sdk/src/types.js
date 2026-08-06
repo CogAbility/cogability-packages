@@ -13,6 +13,10 @@
  * @property {SessionStore} [sessionStore] - Storage adapter for uid/sid.
  *   Defaults to MemorySessionStore. Use BrowserSessionStore in web apps.
  * @property {() => string} [getHostUrl] - Returns the current page URL for message context.
+ * @property {() => (string|null|undefined|Promise<string|null|undefined>)} [getIdToken] -
+ *   Supplies a current App ID id_token when an expired CAM session has to be
+ *   re-established. Called at recovery time, so read from live storage rather
+ *   than closing over a token that may have expired.
  *   Defaults to window.location.href in browser, empty string in Node.js.
  */
 

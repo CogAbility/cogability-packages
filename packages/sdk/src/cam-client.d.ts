@@ -18,6 +18,15 @@ export class CamLimitError extends Error {
   constructor(message: string, options: { status: number; code?: string; body?: unknown });
 }
 
+/**
+ * The CAM session expired and could not be restored without an interactive
+ * login. Distinct from a bare 401: recovery was attempted and failed.
+ */
+export class CamSessionExpiredError extends Error {
+  cause?: unknown;
+  constructor(message: string, options?: { cause?: unknown });
+}
+
 export class CamClient {
   host: string;
   cogbotId: string;

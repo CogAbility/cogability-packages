@@ -68,6 +68,50 @@ for await (const event of cam.streamMessage('Save my profile', { anonymous: fals
 }
 ```
 
+## Expired sessions
+
+CAM sessions live on the server and expire on their own schedule, so a client
+that has been idle can still be holding a valid `idToken` and be refused. When a
+request comes back `401`, the SDK re-runs whichever init established the session
+and retries the request once. Anonymous sessions restore silently; the user sees
+nothing.
+
+Authenticated sessions need a live `idToken`, and by the time the session has
+lapsed the token the app passed to `initAuthenticated` has often lapsed with it.
+Supply `getIdToken` so the SDK can fetch a current one instead of replaying a
+stale one. It is called at recovery time, so read from live storage rather than
+closing over a value:
+
+```js
+const cam = new CamClient({
+  cogbotId: 'mc_0091:full',
+  getIdToken: () => sessionStorage.getItem('cam_token'),
+});
+```
+
+Without `getIdToken` the SDK falls back to the token given to
+`initAuthenticated`, which works only while that token is still valid.
+
+When the session cannot be restored without a login, the SDK throws
+`CamSessionExpiredError` rather than a bare `401`. Treat it as "ask the user to
+sign in again" — a plain retry cannot succeed:
+
+```js
+import { CamSessionExpiredError } from '@cogability/sdk';
+
+try {
+  await cam.sendMessage(text);
+} catch (err) {
+  if (err instanceof CamSessionExpiredError) promptSignIn();
+  else showGenericError();
+}
+```
+
+Two limits are deliberate. A request is retried at most once, so a second `401`
+surfaces instead of looping. And `streamMessage` only retries while opening the
+stream — once events have been yielded, replaying would emit them twice, so a
+mid-stream failure is reported rather than recovered.
+
 ## CmgClient — membership validation (any framework)
 
 ```js
