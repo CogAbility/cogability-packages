@@ -43,11 +43,29 @@ pipeline {
                             env.SDK_VERSION = sdkCurrentVersion
                             env.SDK_BUMPED  = 'false'
                         } else {
+                            // Do not read the version off `npm version`'s stdout. In
+                            // this workspace it prints two lines -- the package name,
+                            // then `v0.8.1` -- so the old `| tr -d 'v'` capture stored
+                            // "@cogability/sdk\n0.8.1" and the publish check below ran
+                            // `npm view @cogability/sdk@@cogability/sdk 0.8.1 version`,
+                            // which fails. Bump, then read the result back out of
+                            // package.json the same way the current version is read
+                            // above. (`tr -d 'v'` was also unsafe in its own right: it
+                            // deletes every letter v, not just the version prefix.)
+                            sh "cd packages/sdk && npm version ${params.SDK_BUMP_TYPE} --no-git-tag-version --no-workspaces-update"
                             env.SDK_VERSION = sh(
-                                script: "cd packages/sdk && npm version ${params.SDK_BUMP_TYPE} --no-git-tag-version --no-workspaces-update | tr -d 'v'",
+                                script: "node -p \"require('./packages/sdk/package.json').version\"",
                                 returnStdout: true
                             ).trim()
                             env.SDK_BUMPED  = 'true'
+                        }
+                        // Fail loudly on a malformed version rather than interpolating
+                        // it into an npm command. The publish check below treats any
+                        // `npm view` error as "not published yet" and proceeds, so a
+                        // bad version here becomes an attempted publish instead of a
+                        // clear failure.
+                        if (!(env.SDK_VERSION ==~ /^\d+\.\d+\.\d+([-+].*)?$/)) {
+                            error "SDK version did not resolve to a semver: '${env.SDK_VERSION}'"
                         }
                         echo "SDK target version: ${env.SDK_VERSION} (bumped=${env.SDK_BUMPED})"
 
@@ -62,8 +80,10 @@ pipeline {
                             env.KIT_VERSION = kitCurrentVersion
                             env.KIT_BUMPED  = 'false'
                         } else {
+                            // Same two-line stdout problem as the SDK above.
+                            sh "cd packages/membership-kit && npm version ${params.KIT_BUMP_TYPE} --no-git-tag-version --no-workspaces-update"
                             env.KIT_VERSION = sh(
-                                script: "cd packages/membership-kit && npm version ${params.KIT_BUMP_TYPE} --no-git-tag-version --no-workspaces-update | tr -d 'v'",
+                                script: "node -p \"require('./packages/membership-kit/package.json').version\"",
                                 returnStdout: true
                             ).trim()
                             env.KIT_BUMPED  = 'true'
@@ -71,6 +91,9 @@ pipeline {
                         // NEW_VERSION preserved for the Approval / Update-Template stages
                         // below, which remain kit-scoped.
                         env.NEW_VERSION = env.KIT_VERSION
+                        if (!(env.KIT_VERSION ==~ /^\d+\.\d+\.\d+([-+].*)?$/)) {
+                            error "Kit version did not resolve to a semver: '${env.KIT_VERSION}'"
+                        }
                         echo "Kit target version: ${env.KIT_VERSION} (bumped=${env.KIT_BUMPED})"
 
                         env.NPM_TOKEN = sh(
@@ -225,7 +248,17 @@ pipeline {
                                 ]
                             )
 
-                            if (userInput.UPDATE_TEMPLATE == 'Yes') {
+                            // With exactly one parameter, `input` returns that
+                            // parameter's raw value (a String), not a map keyed by
+                            // name. Reading userInput.UPDATE_TEMPLATE on a String
+                            // throws MissingPropertyException, which the catch below
+                            // swallowed -- so an approval that was actually granted
+                            // logged "Approval timeout or cancelled" and skipped the
+                            // template update, indistinguishable from being too slow.
+                            // Same defect was found and fixed in idbroker PR #6.
+                            def templateChoice = (userInput instanceof Map) ? userInput.UPDATE_TEMPLATE : userInput
+
+                            if (templateChoice == 'Yes') {
                                 env.DO_UPDATE_TEMPLATE = 'true'
                                 echo 'Template update approved'
                             } else {
@@ -234,7 +267,9 @@ pipeline {
                             }
                         }
                     } catch (err) {
-                        echo 'Approval timeout or cancelled. Skipping template update.'
+                        // Include the exception so a real bug here is distinguishable
+                        // from a genuine timeout instead of looking identical to one.
+                        echo "Approval step did not complete with an explicit choice (timeout, cancellation, or error: ${err}). Skipping template update."
                         env.DO_UPDATE_TEMPLATE = 'false'
                     }
                 }
