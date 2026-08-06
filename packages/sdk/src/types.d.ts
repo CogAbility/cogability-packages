@@ -32,7 +32,7 @@ export interface AuthClientOptions {
   clientId: string;
   /** Full URL of the /callback page. */
   redirectUri: string;
-  /** URL of the CMG /auth/token endpoint, used as the OIDC token_endpoint to avoid CORS issues with App ID's direct endpoint. */
+  /** URL of the CMG /auth/token endpoint, used as the OIDC token_endpoint. Required both because App ID's direct endpoint does not allow CORS from browser origins, and because site clients are confidential: CMG attaches the client secret server-side, which a browser cannot hold. */
   tokenEndpointProxy: string;
   /** When true, stores the OIDC session in localStorage instead of sessionStorage, keeping the user signed in across tab closes and browser restarts. Trade-off: tokens in localStorage are readable by XSS. Defaults to false. */
   persistSession?: boolean;

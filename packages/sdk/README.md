@@ -155,7 +155,8 @@ const auth = new AuthClient({
   authorityUrl: 'https://us-south.appid.cloud.ibm.com/oauth/v4/YOUR_TENANT',
   clientId: 'YOUR_CLIENT_ID',
   redirectUri: `${window.location.origin}/callback`,
-  // Routes token exchange through CMG to avoid App ID CORS restrictions:
+  // Routes the token exchange through CMG: App ID's endpoint disallows browser
+  // CORS, and CMG attaches the confidential client's secret server-side. Required.
   tokenEndpointProxy: 'https://cmg.example.com/auth/token',
 });
 

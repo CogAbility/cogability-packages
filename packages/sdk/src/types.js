@@ -28,7 +28,10 @@
  * @property {string} clientId - App ID client ID.
  * @property {string} redirectUri - Full URL of the /callback page.
  * @property {string} tokenEndpointProxy - URL of the CMG /auth/token endpoint,
- *   used as the OIDC token_endpoint to avoid CORS issues with App ID's direct endpoint.
+ *   used as the OIDC token_endpoint. Required both because App ID's direct
+ *   endpoint does not allow CORS from browser origins, and because site clients
+ *   are confidential: CMG attaches the client secret server-side, which a browser
+ *   cannot hold.
  * @property {boolean} [persistSession=false] - When true, stores the OIDC session
  *   in localStorage instead of sessionStorage, keeping the user signed in across
  *   tab closes and browser restarts. Trade-off: tokens in localStorage are
