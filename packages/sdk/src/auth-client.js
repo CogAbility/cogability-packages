@@ -3,7 +3,11 @@
  *
  * Wraps oidc-client-ts with CogAbility-specific defaults:
  *   - Routes the token exchange through the CMG /auth/token proxy (server-to-server)
- *     because App ID's token endpoint does not support CORS from browser origins.
+ *     for two reasons. App ID's token endpoint does not support CORS from browser
+ *     origins; and site clients are confidential, so the exchange requires a client
+ *     secret that CMG attaches server-side and a browser must never hold. The proxy
+ *     is therefore load-bearing for sign-in, not merely a CORS workaround — solving
+ *     CORS some other way does not make it removable.
  *   - Provides a clean, minimal API surface for login, callback handling, and logout.
  *
  * This class is browser-only (it drives redirect-based OIDC flows and accesses
