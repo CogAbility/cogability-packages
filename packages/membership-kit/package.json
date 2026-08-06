@@ -18,7 +18,7 @@
     "react-router-dom": "^7.0.0"
   },
   "dependencies": {
-    "@cogability/sdk": "^0.8.0",
+    "@cogability/sdk": "^0.9.0",
     "oidc-client-ts": "^3.5.0"
   }
 }

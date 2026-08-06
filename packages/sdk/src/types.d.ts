@@ -16,6 +16,14 @@ export interface CamClientOptions {
   sessionStore?: SessionStore;
   /** Returns the current page URL for message context. Defaults to window.location.href in browser, empty string in Node.js. */
   getHostUrl?: () => string;
+  /**
+   * Supplies a current App ID id_token when an expired CAM session has to be
+   * re-established. Called at recovery time rather than at construction, so it
+   * should read from live storage instead of closing over a token. Without it
+   * the token passed to initAuthenticated is replayed, which fails once that
+   * token has itself expired.
+   */
+  getIdToken?: () => string | null | undefined | Promise<string | null | undefined>;
 }
 
 export interface CmgClientOptions {

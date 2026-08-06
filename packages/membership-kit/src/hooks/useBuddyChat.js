@@ -40,6 +40,15 @@ function _saveAnonLimit(cogbotId, used, reached) {
   } catch {}
 }
 
+/**
+ * The CAM session lapsed and the SDK could not restore it without a login.
+ * Worth its own message: "something went wrong" invites a retry that cannot
+ * succeed, whereas signing in again actually fixes it.
+ */
+function isSessionExpiredError(err) {
+  return err?.name === 'CamSessionExpiredError';
+}
+
 function isAnonymousLimitError(err) {
   return (
     err?.status === 429 ||
@@ -203,6 +212,9 @@ export default function useBuddyChat() {
           setLimitReached(true);
           _saveAnonLimit(cam.cogbotId, turnsUsedRef.current, true);
           setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+        } else if (isSessionExpiredError(err)) {
+          console.error('BuddyChat: session expired', err);
+          setError('Your session has expired. Please sign in again.');
         } else {
           console.error('BuddyChat: stream failed', err);
           setError('Something went wrong sending your message.');
@@ -239,6 +251,9 @@ export default function useBuddyChat() {
           setLimitReached(true);
           _saveAnonLimit(cam.cogbotId, turnsUsedRef.current, true);
           setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+        } else if (isSessionExpiredError(err)) {
+          console.error('BuddyChat: session expired', err);
+          setError('Your session has expired. Please sign in again.');
         } else {
           console.error('BuddyChat: message failed', err);
           setError('Something went wrong sending your message.');
