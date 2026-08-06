@@ -182,11 +182,26 @@ pipeline {
                         // pushed to npm in this run (env.*_PUBLISHED == 'true').
                         sh """
                             set -e
+                            # Jenkins runs sh with -xe, so every command is echoed to the
+                            # build log. That printed both the token assignment and every
+                            # URL it was embedded in, in plaintext, to a log readable by
+                            # anyone with Jenkins access -- for a token that can push to
+                            # CogAbility repos. Tracing goes off before the token exists,
+                            # and the token reaches git through a credentials file rather
+                            # than the command line, so it cannot resurface in a trace, in
+                            # `ps`, or in a git error that echoes the remote.
+                            set +x
 
                             GIT_TOKEN=\$(aws secretsmanager get-secret-value --secret-id github_access_token_jenkins --query SecretString --output text --region ${AWS_REGION})
 
                             git config --global user.email "${GIT_AUTHOR_EMAIL}"
                             git config --global user.name "${GIT_AUTHOR_NAME}"
+                            git config --global credential.helper "store --file=\$HOME/.git-credentials-jenkins"
+                            printf 'https://tim.millett%%40cogability.com:%s@github.com\\n' "\$GIT_TOKEN" > \$HOME/.git-credentials-jenkins
+                            chmod 600 \$HOME/.git-credentials-jenkins
+                            unset GIT_TOKEN
+
+                            REMOTE="https://github.com/CogAbility/cogability-packages.git"
 
                             STAGED=""
                             if [ "${env.SDK_BUMPED}" = "true" ]; then
@@ -200,18 +215,29 @@ pipeline {
 
                             if [ -n "\$STAGED" ]; then
                                 git diff --cached --quiet || git commit -m "Release:\$STAGED"
-                                git push https://tim.millett%40cogability.com:\${GIT_TOKEN}@github.com/CogAbility/cogability-packages.git main
+                                # A multibranch build checks out a DETACHED HEAD, so there
+                                # is no local ref named main and `git push <url> main` dies
+                                # with "src refspec main does not match any". That happened
+                                # *after* npm publish, so 0.8.1/0.7.1 went to the registry
+                                # while the repo stayed on 0.8.0/0.7.0 with no tags. Push
+                                # the commit itself at the remote branch instead. This is
+                                # still a fast-forward-only push: if main moved underneath
+                                # the build, it is refused rather than clobbered.
+                                echo "Pushing release commit to main..."
+                                git push "\$REMOTE" HEAD:refs/heads/main
                             else
                                 echo "No version bumps to commit"
                             fi
 
                             if [ "${env.SDK_PUBLISHED}" = "true" ]; then
                                 git tag -a "sdk-v${env.SDK_VERSION}" -m "Release @cogability/sdk@${env.SDK_VERSION} — tagged by Jenkins on \$(date)"
-                                git push https://tim.millett%40cogability.com:\${GIT_TOKEN}@github.com/CogAbility/cogability-packages.git "sdk-v${env.SDK_VERSION}"
+                                echo "Pushing tag sdk-v${env.SDK_VERSION}..."
+                                git push "\$REMOTE" "sdk-v${env.SDK_VERSION}"
                             fi
                             if [ "${env.KIT_PUBLISHED}" = "true" ]; then
                                 git tag -a "membership-kit-v${env.KIT_VERSION}" -m "Release @cogability/membership-kit@${env.KIT_VERSION} — tagged by Jenkins on \$(date)"
-                                git push https://tim.millett%40cogability.com:\${GIT_TOKEN}@github.com/CogAbility/cogability-packages.git "membership-kit-v${env.KIT_VERSION}"
+                                echo "Pushing tag membership-kit-v${env.KIT_VERSION}..."
+                                git push "\$REMOTE" "membership-kit-v${env.KIT_VERSION}"
                             fi
                         """
                     }
@@ -291,14 +317,21 @@ pipeline {
                     withAWS(credentials: 'devops-deployment-key', region: "${AWS_REGION}") {
                         sh """
                             set -e
+                            # Same reason as the Publish stage: sh runs with -xe, so an
+                            # embedded token would be echoed into the build log.
+                            set +x
 
                             GIT_TOKEN=\$(aws secretsmanager get-secret-value --secret-id github_access_token_jenkins --query SecretString --output text --region ${AWS_REGION})
 
                             git config --global user.email "${GIT_AUTHOR_EMAIL}"
                             git config --global user.name "${GIT_AUTHOR_NAME}"
+                            git config --global credential.helper "store --file=\$HOME/.git-credentials-jenkins"
+                            printf 'https://tim.millett%%40cogability.com:%s@github.com\\n' "\$GIT_TOKEN" > \$HOME/.git-credentials-jenkins
+                            chmod 600 \$HOME/.git-credentials-jenkins
+                            unset GIT_TOKEN
 
                             rm -rf cogbot-membership-website-template
-                            git clone https://tim.millett%40cogability.com:\${GIT_TOKEN}@github.com/CogAbility/cogbot-membership-website-template.git
+                            git clone https://github.com/CogAbility/cogbot-membership-website-template.git
                             cd cogbot-membership-website-template
                             git checkout main
 
@@ -312,7 +345,7 @@ pipeline {
 
                             git add package.json package-lock.json
                             git diff --cached --quiet || git commit -m "Update @cogability/membership-kit to ${env.KIT_VERSION}"
-                            git push https://tim.millett%40cogability.com:\${GIT_TOKEN}@github.com/CogAbility/cogbot-membership-website-template.git main
+                            git push https://github.com/CogAbility/cogbot-membership-website-template.git main
 
                             echo "cogbot-membership-website-template updated to @cogability/membership-kit@${env.KIT_VERSION}"
                         """
@@ -338,6 +371,11 @@ pipeline {
             sh """
                 rm -rf cogbot-membership-website-template || true
                 rm -f ~/.npmrc || true
+                # Written by the Publish / Update Template stages. Removed here rather
+                # than at the end of those stages so it goes away on failure too, which
+                # is exactly when a stage does not reach its own cleanup.
+                rm -f \$HOME/.git-credentials-jenkins || true
+                git config --global --unset credential.helper || true
             """
         }
     }
