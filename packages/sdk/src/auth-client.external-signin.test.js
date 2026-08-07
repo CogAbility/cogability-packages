@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { AuthClient } from './auth-client.js';
 
 const AUTHORITY = 'https://appid.example.com/oauth/v4/tenant-id';
@@ -45,6 +45,35 @@ function brokerTokens(overrides = {}) {
     ...overrides,
   };
 }
+
+/**
+ * Web Storage stand-in. Carries `length`/`key` as well as the three accessors,
+ * because oidc-client-ts enumerates the store, not just reads single keys.
+ */
+function makeFakeStorage() {
+  const map = new Map();
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
+    key: (index) => [...map.keys()][index] ?? null,
+    get length() {
+      return map.size;
+    },
+  };
+}
+
+// A window has to exist for these to mean anything now that sign-in stamps the
+// session-lifetime bounds. Without one there is nowhere to record when the
+// session started, and every session correctly fails closed as unbounded --
+// which is right for a non-browser host, but says nothing about the broker
+// path these tests are here to cover.
+beforeEach(() => {
+  vi.stubGlobal('window', {
+    localStorage: makeFakeStorage(),
+    sessionStorage: makeFakeStorage(),
+  });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

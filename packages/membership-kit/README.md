@@ -167,7 +167,7 @@ import { AuthProvider, useAuth } from '@cogability/membership-kit';
 </AuthProvider>
 
 // In any component
-const { user, idToken, isLoading, login, logout } = useAuth();
+const { user, idToken, isLoading, login, logout, sessionExpiredReason } = useAuth();
 ```
 
 ### AuthProvider props
@@ -175,12 +175,19 @@ const { user, idToken, isLoading, login, logout } = useAuth();
 | Prop | Default | Purpose |
 |---|---|---|
 | `persistSession` | `true` | Keeps the login in `localStorage` so it survives a tab close. Pass `false` for a session that ends with the tab. |
+| `idleTimeoutMinutes` | `30` (SDK default) | Forwarded to `AuthClient`. Signs the user out after this many minutes without activity in the tab. Pass `0` to disable. |
+| `absoluteCapHours` | `12` (SDK default) | Forwarded to `AuthClient`. Signs the user out this many hours after sign-in, regardless of activity. Pass `0` to disable. |
 
 Persisting the session matters more than it sounds: App ID issues no refresh
 tokens to SPA clients, so a tab-scoped login means members re-run the emailed
 multi-factor code on essentially every visit. With the default, a returning
-member normally lands signed in and is prompted again only on a new device or
-after the tenant's SSO inactivity window lapses.
+member lands signed in as long as they are still within the 30-minute idle
+timeout and the 12-hour absolute cap described below — those two bounds are
+enforced client-side on top of persistence and apply even on the same
+device, so persisting the session avoids a *tab close* forcing a fresh login,
+but it does not extend a session past either bound. Beyond that, a member is
+also prompted again on a new device or after the tenant's SSO inactivity
+window lapses.
 
 ```jsx
 // Opt out — session ends when the tab closes
@@ -188,6 +195,44 @@ after the tenant's SSO inactivity window lapses.
   <YourApp />
 </AuthProvider>
 ```
+
+```jsx
+// Override the session bounds for this deployment
+<AuthProvider idleTimeoutMinutes={15} absoluteCapHours={8}>
+  <YourApp />
+</AuthProvider>
+```
+
+#### Session bounds and `sessionExpiredReason`
+
+`AuthProvider` enforces two browser-side session limits — a 30-minute idle
+timeout and a 12-hour absolute cap, matching what CAM and `fe-ctm` already
+enforce server-side (HIPAA 164.312(a)(2)(iii) automatic logoff, CJIS AC-12
+session termination). Both are active by default; override them with the
+`idleTimeoutMinutes` / `absoluteCapHours` props above.
+
+While a user is signed in, `AuthProvider` runs the SDK's activity monitor so
+an idle tab is actually signed out, not just left showing stale content until
+the next API call. When either bound is crossed, `AuthProvider`:
+
+- clears the `cam_token` / `cam_access_token` sessionStorage mirror that
+  `useBuddyChat` and `buddyApi` read directly, so the chat widget cannot keep
+  using a token from a session that has already ended;
+- resets `user`, `isMember`, `roles`, and the rest of the derived auth state,
+  the same as calling `logout()`;
+- sets `sessionExpiredReason` to `'idle'` or `'absolute'`.
+
+```jsx
+const { sessionExpiredReason } = useAuth();
+
+if (sessionExpiredReason) {
+  // Distinguish "you signed out" from "you were signed out".
+  // e.g. show "You were signed out after 30 minutes of inactivity."
+}
+```
+
+`sessionExpiredReason` is `null` until a bound is crossed, and is cleared
+automatically on the next successful sign-in.
 
 The anonymous chat session is stored the same way. It uses the SDK's
 `PersistentBrowserSessionStore`, so a visitor keeps one `uid` across tab closes

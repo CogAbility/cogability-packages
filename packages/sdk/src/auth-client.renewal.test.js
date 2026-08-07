@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { AuthClient } from './auth-client.js';
 
 const BASE_OPTIONS = {
@@ -7,6 +7,23 @@ const BASE_OPTIONS = {
   redirectUri: 'https://example.com/callback',
   tokenEndpointProxy: 'https://cmg.example.com/auth/token',
 };
+
+function makeFakeStorage() {
+  const map = new Map();
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
+  };
+}
+
+function makeFakeWindow() {
+  return { localStorage: makeFakeStorage(), sessionStorage: makeFakeStorage() };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function makeUser(overrides = {}) {
   return {
@@ -37,9 +54,20 @@ function makeFakeManager({ getUser, signinSilent } = {}) {
   };
 }
 
+/**
+ * A fake user with no session-bounds record is, by the fail-closed contract
+ * of `SessionBounds.check()`, an *expired* session — indistinguishable from a
+ * stolen or pre-existing token. These renewal tests are about a genuinely
+ * signed-in member, so give the client a real window (with working storage)
+ * and stamp a fresh, in-bounds bounds record the same way `handleCallback()`
+ * would, via the public `_bounds.start()` surface rather than writing the
+ * storage JSON by hand.
+ */
 function makeAuth(manager) {
+  vi.stubGlobal('window', makeFakeWindow());
   const auth = new AuthClient(BASE_OPTIONS);
   auth._manager = manager;
+  auth._bounds.start();
   return auth;
 }
 

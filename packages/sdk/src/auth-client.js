@@ -29,8 +29,27 @@
  *   const { user, idToken } = await auth.handleCallback();
  */
 
+import { SessionBounds } from './session-bounds.js';
+
 /** Renew this many seconds before the access token actually expires. */
 const RENEW_SKEW_SECONDS = 60;
+
+/**
+ * How often the optional activity monitor re-evaluates the session bounds.
+ * Coarse on purpose: a 30-minute idle timeout does not need second precision,
+ * and a cheap timer is easier to justify running on every page.
+ */
+const ACTIVITY_CHECK_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Events counted as user activity for the idle timeout.
+ *
+ * Deliberately excludes `mousemove`: a trembling hand, a CSS animation under
+ * the cursor, or a page that moves under a stationary pointer would all hold a
+ * session open indefinitely without anyone present, which is the situation the
+ * idle timeout exists to end.
+ */
+const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'touchstart', 'scroll'];
 
 /**
  * Read a JWT's payload without verifying it.
@@ -77,8 +96,27 @@ export class AuthClient {
    *   sessionStorage, so the user stays signed in across tab closes and browser
    *   restarts. Trade-off: tokens in localStorage are readable by XSS, so only
    *   enable this if you trust your app's XSS posture. Defaults to false.
+   * @param {number} [options.idleTimeoutMinutes=30] - Sign the user out after this
+   *   many minutes without activity. Pass 0 to disable.
+   * @param {number} [options.absoluteCapHours=12] - Sign the user out this many
+   *   hours after sign-in regardless of activity. Pass 0 to disable.
+   * @param {(reason: 'idle'|'absolute') => void} [options.onSessionExpired] - Called
+   *   once when a bound is crossed and the session has been cleared. Use it to
+   *   drop app-level copies of the tokens and send the user to a login screen;
+   *   this client deliberately never navigates on its own. It fires *after* the
+   *   OIDC session and the bounds record are already gone, so a handler should
+   *   not call `logout()` again — there is nothing left for it to clear.
    */
-  constructor({ authorityUrl, clientId, redirectUri, tokenEndpointProxy, persistSession = false } = {}) {
+  constructor({
+    authorityUrl,
+    clientId,
+    redirectUri,
+    tokenEndpointProxy,
+    persistSession = false,
+    idleTimeoutMinutes,
+    absoluteCapHours,
+    onSessionExpired,
+  } = {}) {
     if (!authorityUrl) throw new Error('AuthClient: authorityUrl is required');
     if (!clientId) throw new Error('AuthClient: clientId is required');
     if (!redirectUri) throw new Error('AuthClient: redirectUri is required');
@@ -87,6 +125,41 @@ export class AuthClient {
     this._config = { authorityUrl, clientId, redirectUri, tokenEndpointProxy, persistSession };
     this._manager = null;
     this._renewal = null;
+    this._onSessionExpired = typeof onSessionExpired === 'function' ? onSessionExpired : null;
+    this._monitor = null;
+
+    this._bounds = new SessionBounds({
+      getStorage: () => this._boundsStorage(),
+      // Namespaced by client id: sites sharing an origin (a Lovable subdomain,
+      // say) must not expire each other's sessions.
+      key: `cogability.session_bounds:${clientId}`,
+      idleTimeoutMinutes,
+      absoluteCapHours,
+    });
+  }
+
+  /**
+   * The storage area holding the session bounds record.
+   *
+   * Follows the OIDC session rather than picking independently, so the stamps
+   * and the tokens they bound are always discarded together — a record in
+   * localStorage describing a tab-scoped session would outlive it and then fail
+   * closed on a session that never existed.
+   */
+  _boundsStorage() {
+    if (typeof window === 'undefined') return null;
+    if (this._config.persistSession) {
+      try {
+        if (window.localStorage) return window.localStorage;
+      } catch {
+        // Privacy mode. Matches _getManager's fallback to the default store.
+      }
+    }
+    try {
+      return window.sessionStorage ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -168,6 +241,7 @@ export class AuthClient {
   async handleCallback() {
     const manager = await this._getManager();
     const oidcUser = await manager.signinRedirectCallback();
+    this._bounds.start();
 
     return {
       user: toAuthUser(oidcUser),
@@ -273,6 +347,7 @@ export class AuthClient {
     });
 
     await manager.storeUser(oidcUser);
+    this._bounds.start();
 
     return {
       user: toAuthUser(oidcUser),
@@ -287,12 +362,50 @@ export class AuthClient {
    * Pair with clearing any app-level tokens from your session store.
    */
   async logout() {
+    this.stopActivityMonitor();
+    this._bounds.clear();
     try {
       const manager = await this._getManager();
       const oidcUser = await manager.getUser();
       if (oidcUser) await manager.removeUser();
     } catch {
       // Best-effort cleanup
+    }
+  }
+
+  /**
+   * Clear the session because a lifetime bound was crossed, then report it once.
+   *
+   * @param {'idle'|'absolute'} reason
+   * @returns {Promise<void>}
+   */
+  async _expireSession(reason) {
+    this._bounds.clear();
+    this._renewal = null;
+
+    let hadSession = false;
+    try {
+      const manager = await this._getManager();
+      const oidcUser = await manager.getUser();
+      if (oidcUser) {
+        hadSession = true;
+        await manager.removeUser();
+      }
+    } catch {
+      // Best-effort: the callback below still fires so the app can clean up
+      // whatever it holds outside this client.
+      hadSession = true;
+    }
+
+    // Only announce a session that was actually there. getUser() runs on most
+    // page loads, and an already-cleared session must not re-fire the callback
+    // on every call and bounce a user who is sitting on a public page.
+    if (hadSession && this._onSessionExpired) {
+      try {
+        this._onSessionExpired(reason);
+      } catch {
+        // A consumer's handler must not break the auth path.
+      }
     }
   }
 
@@ -304,6 +417,12 @@ export class AuthClient {
    * routes through the CMG /auth/token proxy. An expired session that cannot be
    * renewed resolves to null rather than returning a stale token, so callers get
    * a clean "logged out" signal instead of a guaranteed 401 from the API.
+   *
+   * Session bounds are applied here, before any renewal is attempted: a session
+   * past its idle timeout or absolute cap is cleared and reported as logged out
+   * rather than being handed a fresh token. Reaching this method also counts as
+   * activity, which is what makes the idle window roll — so a background poller
+   * calling it on a timer would keep a session alive with nobody present.
    *
    * @returns {Promise<import('oidc-client-ts').User | null>}
    */
@@ -322,6 +441,13 @@ export class AuthClient {
       return null;
     }
     if (!user) return null;
+
+    const expiry = this._bounds.check();
+    if (expiry) {
+      await this._expireSession(expiry);
+      return null;
+    }
+    this._bounds.touch();
 
     const expiringSoon =
       user.expired === true ||
@@ -354,6 +480,75 @@ export class AuthClient {
     const user = await this.getUser();
     return user?.id_token ?? null;
   }
+
+  /**
+   * Watch for inactivity and end the session when a bound is crossed.
+   *
+   * Without this, the bounds are only applied when something asks for the token.
+   * That is enough to stop an idle session being *used*, but not enough for an
+   * automatic-logoff control: a member who walks away from a rendered members
+   * page leaves it on screen indefinitely, because nothing calls `getUser()`
+   * again until they navigate. This closes that gap.
+   *
+   * Opt-in, because a framework-agnostic library should not attach listeners to
+   * a consumer's window uninvited. `@cogability/membership-kit` starts it for
+   * you; apps driving `AuthClient` directly should call it once after sign-in
+   * and pair it with `stopActivityMonitor()` on teardown.
+   *
+   * Note this is per-tab. Two tabs on the same origin keep their own timers,
+   * and activity in one refreshes the shared idle stamp for both — which is the
+   * intended reading of "the user is still here".
+   *
+   * @returns {() => void} A function that stops the monitor, for convenience in
+   *   framework cleanup callbacks.
+   */
+  startActivityMonitor() {
+    const noop = () => {};
+    if (this._monitor) return this._monitor.stop;
+    if (this._bounds.disabled) return noop;
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return noop;
+
+    const onActivity = () => this._bounds.touch();
+    const evaluate = () => {
+      // No stamps means there is no tracked session to end. getUser() is the
+      // right place to fail that case closed, since it has a stored token in
+      // hand; on a timer it would just fire at visitors who never signed in.
+      if (!this._bounds.hasRecord()) return;
+      const expiry = this._bounds.check();
+      if (expiry) void this._expireSession(expiry);
+    };
+    const onVisibilityChange = () => {
+      if (document?.visibilityState === 'visible') evaluate();
+    };
+
+    for (const event of ACTIVITY_EVENTS) {
+      window.addEventListener(event, onActivity, { passive: true });
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+    const timer = setInterval(evaluate, ACTIVITY_CHECK_INTERVAL_MS);
+
+    const stop = () => {
+      if (!this._monitor) return;
+      clearInterval(timer);
+      for (const event of ACTIVITY_EVENTS) {
+        window.removeEventListener(event, onActivity);
+      }
+      if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+      this._monitor = null;
+    };
+
+    this._monitor = { stop };
+    return stop;
+  }
+
+  /** Stop the activity monitor started by `startActivityMonitor()`. */
+  stopActivityMonitor() {
+    this._monitor?.stop();
+  }
 }
 
 /**
@@ -370,6 +565,11 @@ export class AuthClient {
  * App component handles this automatically when you set
  * `VITE_ROUTER_MODE=hash` in your `.env.production`.
  *
+ * Session bounds can be overridden per deployment with
+ * `VITE_SESSION_IDLE_MINUTES` and `VITE_SESSION_ABSOLUTE_HOURS`, named to match
+ * the `SESSION_IDLE_MINUTES` / `SESSION_ABSOLUTE_HOURS` variables CAM and CTM
+ * already use. Unset leaves the 30-minute / 12-hour defaults in place.
+ *
  * @param {string} cmgUrl - Base URL of CMG (used to build the token proxy URL).
  * @returns {AuthClient}
  */
@@ -379,5 +579,7 @@ export function createAuthClientFromEnv(cmgUrl) {
     clientId: import.meta.env.VITE_APPID_CLIENT_ID,
     redirectUri: `${window.location.origin}/callback`,
     tokenEndpointProxy: `${cmgUrl}/auth/token`,
+    idleTimeoutMinutes: import.meta.env.VITE_SESSION_IDLE_MINUTES,
+    absoluteCapHours: import.meta.env.VITE_SESSION_ABSOLUTE_HOURS,
   });
 }

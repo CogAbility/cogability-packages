@@ -96,8 +96,17 @@ function RootOAuthLanding({ onComplete }) {
  * @param {object} config - The site configuration (from site.config.js)
  * @param {object} [overrides] - Optional map of component overrides:
  *   { Header, Footer, LandingPage, MembersPage, CallbackPage, OnboardingPage, ProfilePage }
+ * @param {boolean} [persistSession] - Forwarded to AuthProvider; defaults to true there.
+ * @param {number} [idleTimeoutMinutes] - Forwarded to AuthProvider/AuthClient; SDK default (30) if omitted.
+ * @param {number} [absoluteCapHours] - Forwarded to AuthProvider/AuthClient; SDK default (12) if omitted.
  */
-export default function App({ config, overrides = {} }) {
+export default function App({
+  config,
+  overrides = {},
+  persistSession,
+  idleTimeoutMinutes,
+  absoluteCapHours,
+}) {
   const Header = overrides.Header || DefaultHeader;
   const Footer = overrides.Footer || DefaultFooter;
   const Landing = overrides.LandingPage || DefaultLandingPage;
@@ -120,7 +129,11 @@ export default function App({ config, overrides = {} }) {
 
   return (
     <SiteConfigProvider config={config}>
-      <AuthProvider>
+      <AuthProvider
+        persistSession={persistSession}
+        idleTimeoutMinutes={idleTimeoutMinutes}
+        absoluteCapHours={absoluteCapHours}
+      >
         {isHashOAuthLanding ? (
           <RootOAuthLanding onComplete={handleOAuthComplete} />
         ) : (
