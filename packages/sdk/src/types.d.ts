@@ -44,6 +44,12 @@ export interface AuthClientOptions {
   tokenEndpointProxy: string;
   /** When true, stores the OIDC session in localStorage instead of sessionStorage, keeping the user signed in across tab closes and browser restarts. Trade-off: tokens in localStorage are readable by XSS. Defaults to false. */
   persistSession?: boolean;
+  /** End the session after this many minutes without user activity. Defaults to 30; 0 disables. */
+  idleTimeoutMinutes?: number;
+  /** End the session this many hours after sign-in regardless of activity. Defaults to 12; 0 disables. */
+  absoluteCapHours?: number;
+  /** Called once after a bound is crossed and the session has been cleared, so the app can drop its own token copies and redirect. AuthClient never navigates itself. */
+  onSessionExpired?: (reason: 'idle' | 'absolute') => void;
 }
 
 export interface CogbotSession {

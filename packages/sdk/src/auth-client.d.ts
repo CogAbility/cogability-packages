@@ -62,6 +62,15 @@ export class AuthClient {
 
   /** Return the id_token string from the currently stored OIDC user, or null. */
   getIdToken(): Promise<string | null>;
+
+  /**
+   * Watch for inactivity and end the session when the idle timeout or absolute
+   * cap is crossed. Opt-in; returns a function that stops the monitor.
+   */
+  startActivityMonitor(): () => void;
+
+  /** Stop the activity monitor started by `startActivityMonitor()`. */
+  stopActivityMonitor(): void;
 }
 
 /**

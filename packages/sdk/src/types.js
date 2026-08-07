@@ -40,6 +40,13 @@
  *   in localStorage instead of sessionStorage, keeping the user signed in across
  *   tab closes and browser restarts. Trade-off: tokens in localStorage are
  *   readable by XSS.
+ * @property {number} [idleTimeoutMinutes=30] - End the session after this many
+ *   minutes without user activity. 0 disables the idle timeout.
+ * @property {number} [absoluteCapHours=12] - End the session this many hours
+ *   after sign-in regardless of activity. 0 disables the cap.
+ * @property {(reason: 'idle'|'absolute') => void} [onSessionExpired] - Called once
+ *   after a bound is crossed and the session has been cleared, so the app can
+ *   drop its own token copies and redirect. AuthClient never navigates itself.
  */
 
 /**
