@@ -343,6 +343,46 @@ pipeline {
                             # shipping the old kit or fail outright on `npm ci`.
                             npm install --package-lock-only
 
+                            # That install alone is not enough. It will not move a transitive
+                            # dependency that still satisfies its range, and the kit depends on
+                            # the SDK by caret, which on a 0.x version spans every patch. When
+                            # kit 0.9.0 shipped needing an API added in sdk 0.9.1, the refresh
+                            # left the lockfile's existing sdk 0.9.0 in place — it satisfies
+                            # ^0.9.0 — and every signed-in visitor hit a TypeError. Move the
+                            # transitive SDK forward explicitly.
+                            npm update @cogability/sdk --package-lock-only
+
+                            # Refuse to push a lockfile that pairs this kit with an SDK the kit
+                            # cannot run against. A red build here is recoverable; a green one
+                            # that blanks the deployed site is not. The kit must match this
+                            # release exactly; the SDK must be at least the version this release
+                            # was built against, since a newer patch is fine.
+                            node -e 'const lock = require("./package-lock.json");
+                              const resolved = function (name) {
+                                const entry = lock.packages && lock.packages["node_modules/" + name];
+                                return entry && entry.version;
+                              };
+                              const cmp = function (a, b) {
+                                const left = String(a).split("."), right = String(b).split(".");
+                                for (var i = 0; i < 3; i++) {
+                                  const x = Number(left[i] || 0), y = Number(right[i] || 0);
+                                  if (x !== y) return x < y ? -1 : 1;
+                                }
+                                return 0;
+                              };
+                              const wantKit = "${env.KIT_VERSION}", wantSdk = "${env.SDK_VERSION}";
+                              const kit = resolved("@cogability/membership-kit"), sdk = resolved("@cogability/sdk");
+                              const problems = [];
+                              if (!wantKit || !wantSdk) problems.push("pipeline computed an empty version: kit=" + wantKit + " sdk=" + wantSdk);
+                              if (kit !== wantKit) problems.push("membership-kit resolved " + kit + ", expected " + wantKit);
+                              if (!sdk || cmp(sdk, wantSdk) < 0) problems.push("sdk resolved " + sdk + ", expected at least " + wantSdk);
+                              if (problems.length) {
+                                console.error("LOCKFILE SKEW, refusing to push:");
+                                problems.forEach(function (p) { console.error("  " + p); });
+                                process.exit(1);
+                              }
+                              console.log("lockfile pairs membership-kit " + kit + " with sdk " + sdk);'
+
                             git add package.json package-lock.json
                             git diff --cached --quiet || git commit -m "Update @cogability/membership-kit to ${env.KIT_VERSION}"
                             git push https://github.com/CogAbility/cogbot-membership-website-template.git main
