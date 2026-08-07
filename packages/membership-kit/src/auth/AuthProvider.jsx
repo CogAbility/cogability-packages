@@ -320,10 +320,25 @@ export function AuthProvider({ children, persistSession = true, idleTimeoutMinut
   // The guard inside startActivityMonitor() makes calling it twice a no-op,
   // and stop() on an already-stopped monitor is also a no-op, so this is
   // safe under React 19 StrictMode's mount → cleanup → mount double-invoke.
+  // startActivityMonitor only exists from sdk@0.9.1 onward, yet this kit's
+  // "^0.9.0" dependency also resolves the 0.9.0 that predates it — a caret on
+  // a 0.x version spans every patch. Degrade rather than throw when they skew:
+  // without the monitor an idle session still ends, just on the next token read
+  // via getUser()'s bounds check instead of while the tab sits open. The stop
+  // guard covers an SDK that returns nothing from startActivityMonitor().
   useEffect(() => {
     if (!user) return;
+    if (typeof auth?.startActivityMonitor !== 'function') {
+      console.warn(
+        'AuthProvider: the installed @cogability/sdk predates startActivityMonitor(), so idle ' +
+        'sessions will only be ended on the next token read instead of while the tab sits idle.'
+      );
+      return;
+    }
     const stop = auth.startActivityMonitor();
-    return () => stop();
+    return () => {
+      if (typeof stop === 'function') stop();
+    };
   }, [user, auth]);
 
   return (
