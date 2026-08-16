@@ -3,6 +3,16 @@ pipeline {
         label 'default-dind'
     }
 
+    options {
+        // Two builds of the same branch running the Deploy stage at once race
+        // each other's `kubectl set image` / `rollout status` calls against the
+        // same Deployment, so both can exceed the rollout timeout even though
+        // the final image tag ends up correct. Queue instead of running in
+        // parallel. Not `abortPrevious: true`, since a queued build could be
+        // sitting at a manual production-approval gate.
+        disableConcurrentBuilds()
+    }
+
     parameters {
         choice(
             name: 'SDK_BUMP_TYPE',
