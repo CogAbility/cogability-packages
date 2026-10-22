@@ -70,7 +70,7 @@ export class CmgClient {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message =
-        body.message || body.error || `CmgClient: validateMembership failed (${res.status})`;
+        body?.message || body?.error || `CmgClient: validateMembership failed (${res.status})`;
       throw new CmgError(message, res.status, body);
     }
 
@@ -192,7 +192,7 @@ export class CmgClient {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      const message = body.message || body.error || `CmgClient: saveProfile failed (${res.status})`;
+      const message = body?.message || body?.error || `CmgClient: saveProfile failed (${res.status})`;
       throw new CmgError(message, res.status, body);
     }
     return res.json();
@@ -210,7 +210,7 @@ export class CmgClient {
     );
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      const message = body.message || body.error || `CmgClient: getProfile failed (${res.status})`;
+      const message = body?.message || body?.error || `CmgClient: getProfile failed (${res.status})`;
       throw new CmgError(message, res.status, body);
     }
     return res.json();

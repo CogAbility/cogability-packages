@@ -205,6 +205,19 @@ describe('CmgClient#saveProfile - error handling', () => {
       expect(err.status).toBe(503);
     }
   });
+
+  it('uses generic fallback when body contains literal null for error and message', async () => {
+    mockFetchOnce(500, { error: null, message: null });
+
+    try {
+      await cmg.saveProfile('token', {});
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err.message).toBe('CmgClient: saveProfile failed (500)');
+      expect(err.status).toBe(500);
+      expect(err.body).toEqual({ error: null, message: null });
+    }
+  });
 });
 
 describe('CmgClient#getProfile - error handling', () => {
@@ -259,6 +272,20 @@ describe('CmgClient#getProfile - error handling', () => {
       expect(err.message).toBe('CmgClient: getProfile failed (500)');
       expect(err.status).toBe(500);
       expect(err.code).toBeUndefined();
+    }
+  });
+
+  it('uses generic fallback when body contains literal null for error and message', async () => {
+    mockFetchOnce(502, { error: null, message: null, code: null });
+
+    try {
+      await cmg.getProfile('token');
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err.message).toBe('CmgClient: getProfile failed (502)');
+      expect(err.status).toBe(502);
+      expect(err.code).toBeUndefined();
+      expect(err.body).toEqual({ error: null, message: null, code: null });
     }
   });
 
