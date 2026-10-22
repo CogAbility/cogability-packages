@@ -15,20 +15,20 @@
  * @property {string} message - Error message from body.message || body.error || generic fallback.
  * @property {string} [code] - Error code from body.code (e.g. 'email_not_verified').
  * @property {number} status - HTTP status code.
- * @property {Object} body - Full response body.
+ * @property {unknown} body - Full response body.
  */
 export class CmgError extends Error {
   /**
    * @param {string} message
    * @param {number} status
-   * @param {Object} body
+   * @param {unknown} body
    */
   constructor(message, status, body) {
     super(message);
     this.name = 'CmgError';
     this.status = status;
-    this.body = body;
-    if (body.code) {
+    this.body = body ?? {};
+    if (body?.code) {
       this.code = body.code;
     }
   }

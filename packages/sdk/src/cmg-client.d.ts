@@ -1,5 +1,16 @@
 import type { CmgClientOptions, MembershipResult, GeofenceResult, RedeemCodeResult } from './types.js';
 
+/**
+ * CmgError — structured error thrown by CmgClient methods (validateMembership, saveProfile, getProfile).
+ * Provides detailed error information from the CMG API response.
+ */
+export class CmgError extends Error {
+  status: number;
+  code?: string;
+  body: unknown;
+  constructor(message: string, status: number, body: unknown);
+}
+
 export class CmgClient {
   host: string;
   namespace: string;

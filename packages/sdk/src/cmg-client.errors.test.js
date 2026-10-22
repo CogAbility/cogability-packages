@@ -33,6 +33,24 @@ describe('CmgError', () => {
     expect(err.code).toBeUndefined();
     expect('code' in err).toBe(false);
   });
+
+  it('handles null body gracefully', () => {
+    const err = new CmgError('Test message', 500, null);
+
+    expect(err.message).toBe('Test message');
+    expect(err.status).toBe(500);
+    expect(err.body).toEqual({});
+    expect(err.code).toBeUndefined();
+  });
+
+  it('handles undefined body gracefully', () => {
+    const err = new CmgError('Test message', 500, undefined);
+
+    expect(err.message).toBe('Test message');
+    expect(err.status).toBe(500);
+    expect(err.body).toEqual({});
+    expect(err.code).toBeUndefined();
+  });
 });
 
 describe('CmgClient#validateMembership - error handling', () => {
