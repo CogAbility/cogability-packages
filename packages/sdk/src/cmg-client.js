@@ -8,6 +8,32 @@
  * Works in browser and Node.js. No browser globals.
  */
 
+/**
+ * CmgError — structured error thrown by CmgClient methods.
+ *
+ * @extends Error
+ * @property {string} message - Error message from body.message || body.error || generic fallback.
+ * @property {string} [code] - Error code from body.code (e.g. 'email_not_verified').
+ * @property {number} status - HTTP status code.
+ * @property {Object} body - Full response body.
+ */
+export class CmgError extends Error {
+  /**
+   * @param {string} message
+   * @param {number} status
+   * @param {Object} body
+   */
+  constructor(message, status, body) {
+    super(message);
+    this.name = 'CmgError';
+    this.status = status;
+    this.body = body;
+    if (body.code) {
+      this.code = body.code;
+    }
+  }
+}
+
 export class CmgClient {
   /**
    * @param {import('./types.js').CmgClientOptions} options
@@ -43,7 +69,9 @@ export class CmgClient {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `CmgClient: validateMembership failed (${res.status})`);
+      const message =
+        body.message || body.error || `CmgClient: validateMembership failed (${res.status})`;
+      throw new CmgError(message, res.status, body);
     }
 
     const data = await res.json();
@@ -164,7 +192,8 @@ export class CmgClient {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `CmgClient: saveProfile failed (${res.status})`);
+      const message = body.message || body.error || `CmgClient: saveProfile failed (${res.status})`;
+      throw new CmgError(message, res.status, body);
     }
     return res.json();
   }
@@ -181,7 +210,8 @@ export class CmgClient {
     );
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `CmgClient: getProfile failed (${res.status})`);
+      const message = body.message || body.error || `CmgClient: getProfile failed (${res.status})`;
+      throw new CmgError(message, res.status, body);
     }
     return res.json();
   }
