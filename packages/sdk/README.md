@@ -129,6 +129,34 @@ const { isMember, roles, geofenced, codeRequired } = await cmg.validateMembershi
 const { geofenced, message } = await cmg.checkGeofence();
 ```
 
+### Error handling
+
+When `validateMembership`, `saveProfile`, or `getProfile` fail (non-2xx response), a `CmgError` is thrown with:
+
+| Property | Type | Description |
+|---|---|---|
+| `message` | string | Error message from `body.message` (preferred), `body.error`, or a generic fallback. Backward compatible: still readable as `err.message`. |
+| `code` | string \| undefined | Error code from `body.code` (e.g. `'email_not_verified'`, `'token_expired'`). Only present when the server includes `code` in the response. |
+| `status` | number | HTTP status code (e.g. `400`, `401`, `403`). |
+| `body` | Object | Full response body for advanced error handling. |
+
+```js
+import { CmgClient, CmgError } from '@cogability/sdk';
+
+try {
+  await cmg.validateMembership(idToken);
+} catch (err) {
+  if (err instanceof CmgError) {
+    console.error('CMG error:', err.message);
+    if (err.code === 'email_not_verified') {
+      showEmailVerificationPrompt(err.message);
+    } else if (err.status === 401) {
+      redirectToLogin();
+    }
+  }
+}
+```
+
 ### `validateMembership(idToken, namespace?)` — return shape (`MembershipResult`)
 
 | Field | Type | Description |

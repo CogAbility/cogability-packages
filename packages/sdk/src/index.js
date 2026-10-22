@@ -20,7 +20,7 @@
  */
 
 export { CamClient, CamLimitError, CamSessionExpiredError } from './cam-client.js';
-export { CmgClient } from './cmg-client.js';
+export { CmgClient, CmgError } from './cmg-client.js';
 export { AuthClient, createAuthClientFromEnv } from './auth-client.js';
 export {
   BrowserSessionStore,
